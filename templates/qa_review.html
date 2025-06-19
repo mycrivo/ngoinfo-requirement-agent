@@ -121,6 +121,26 @@
             padding: 40px;
             color: #666;
         }
+        .qa-form {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+        }
+        .qa-textarea {
+            width: 100%;
+            min-height: 80px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 0.9em;
+            resize: vertical;
+        }
+        .qa-textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+        }
     </style>
 </head>
 <body>
@@ -184,13 +204,6 @@
                 </div>
             </div>
 
-            {% if opp.editable_text %}
-            <div class="field-row">
-                <div class="field-label">Notes:</div>
-                <div class="field-value">{{ opp.editable_text }}</div>
-            </div>
-            {% endif %}
-
             {% if opp.extraction_warning %}
             <div class="warning-box">
                 <strong>⚠️ Extraction Warning:</strong> {{ opp.extraction_warning }}
@@ -203,17 +216,25 @@
             </div>
             {% endif %}
 
-            <div class="actions">
-                <button class="btn btn-success" onclick="approveOpportunity({{ opp.id }})">
-                    ✅ Approve
-                </button>
-                <button class="btn btn-warning" onclick="editOpportunity({{ opp.id }})">
-                    ✏️ Edit
-                </button>
-                <button class="btn btn-primary" onclick="viewDetails({{ opp.id }})">
-                    👁️ View Full Details
-                </button>
-            </div>
+            <form method="POST" action="/admin/qa-review/update" class="qa-form">
+                <input type="hidden" name="id" value="{{ opp.id }}">
+                
+                <div class="field-row">
+                    <div class="field-label">QA Notes:</div>
+                    <div class="field-value">
+                        <textarea name="editable_text" class="qa-textarea" placeholder="Add your review notes and comments here...">{{ opp.editable_text }}</textarea>
+                    </div>
+                </div>
+
+                <div class="actions">
+                    <button type="submit" class="btn btn-success">
+                        ✅ Mark as Reviewed
+                    </button>
+                    <button type="button" class="btn btn-primary" onclick="viewDetails({{ opp.id }})">
+                        👁️ View Full Details
+                    </button>
+                </div>
+            </form>
         </div>
         {% endfor %}
     {% else %}
@@ -224,20 +245,8 @@
     {% endif %}
 
     <script>
-        function approveOpportunity(id) {
-            if (confirm('Approve this funding opportunity?')) {
-                // TODO: Implement approve API call
-                alert('Approve functionality to be implemented');
-            }
-        }
-
-        function editOpportunity(id) {
-            // TODO: Implement edit functionality
-            alert('Edit functionality to be implemented');
-        }
-
         function viewDetails(id) {
-            // TODO: Implement view details
+            // Open the API endpoint to view full opportunity details
             window.open(`/api/requirement/opportunities/${id}`, '_blank');
         }
     </script>
