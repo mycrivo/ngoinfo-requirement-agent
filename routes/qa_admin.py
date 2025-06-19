@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, Request, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, Request, HTTPException, Form
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 import logging
@@ -77,4 +77,54 @@ async def qa_review_dashboard(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to load QA review dashboard: {str(e)}"
+        )
+
+@router.post("/qa-review/update")
+async def update_qa_review(
+    id: int = Form(...),
+    editable_text: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Update QA review - Update editable_text and set status to reviewed
+    """
+    try:
+        logger.info(f"🔄 Processing QA update for opportunity ID: {id}")
+        
+        # Fetch the funding opportunity record
+        opportunity = db.query(FundingOpportunity).filter(
+            FundingOpportunity.id == id
+        ).first()
+        
+        if not opportunity:
+            logger.error(f"🔴 Funding opportunity with ID {id} not found")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Funding opportunity with ID {id} not found"
+            )
+        
+        # Update the fields
+        opportunity.editable_text = editable_text
+        opportunity.status = StatusEnum.reviewed
+        
+        # Commit the changes
+        db.commit()
+        db.refresh(opportunity)
+        
+        logger.info(f"✅ Successfully updated opportunity ID {id} - status changed to 'reviewed'")
+        
+        # Redirect back to the QA review dashboard
+        return RedirectResponse(
+            url="/admin/qa-review",
+            status_code=303  # POST redirect
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"🔴 Error updating QA review for ID {id}: {str(e)}")
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update QA review: {str(e)}"
         ) 
