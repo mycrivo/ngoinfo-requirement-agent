@@ -2,7 +2,7 @@ import os
 import asyncio
 from typing import Dict, Any, List
 import logging
-import httpx
+from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 import openai
 import json
@@ -27,36 +27,120 @@ EXPECTED_FIELDS = {
 }
 
 async def fetch_webpage_content(url: str) -> str:
-    """Fetch and extract text content from a webpage"""
+    """Fetch and extract text content from a webpage using Playwright for JavaScript rendering"""
+    browser = None
+    context = None
+    page = None
+    
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+        logger.info(f"🌐 Starting Playwright fetch for URL: {url}")
+        
+        # Launch Playwright browser in headless mode
+        playwright = await async_playwright().start()
+        browser = await playwright.chromium.launch(
+            headless=True,
+            args=[
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-blink-features=AutomationControlled',
+                '--disable-features=VizDisplayCompositor'
+            ]
+        )
+        
+        # Create browser context with realistic settings
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+            viewport={"width": 1920, "height": 1080},
+            locale="en-US",
+            timezone_id="America/New_York"
+        )
+        
+        # Create new page
+        page = await context.new_page()
+        
+        # Set additional headers
+        await page.set_extra_http_headers({
             "Accept-Language": "en-US,en;q=0.9",
-        }
-        async with httpx.AsyncClient(timeout=30.0) as http_client:
-            response = await http_client.get(url, headers=headers)
-            response.raise_for_status()
-            
-            # Parse HTML content
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
-            # Remove script and style elements
-            for script in soup(["script", "style"]):
-                script.decompose()
-            
-            # Get text content
-            text = soup.get_text()
-            
-            # Clean up whitespace
-            lines = (line.strip() for line in text.splitlines())
-            chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-            text = ' '.join(chunk for chunk in chunks if chunk)
-            
-            return text[:12000]  # Increased limit for better context
-            
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Encoding": "gzip, deflate, br",
+            "DNT": "1",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+        })
+        
+        # Navigate to the page with timeout
+        logger.info(f"📄 Navigating to page: {url}")
+        response = await page.goto(
+            url, 
+            wait_until="networkidle",
+            timeout=10000  # 10 second timeout
+        )
+        
+        # Check if page loaded successfully
+        if response is None:
+            raise Exception("Failed to load page - no response received")
+        
+        if response.status >= 400:
+            raise Exception(f"HTTP {response.status}: {response.status_text}")
+        
+        logger.info(f"✅ Page loaded successfully with status: {response.status}")
+        
+        # Wait a moment for any remaining JavaScript to execute
+        await page.wait_for_timeout(2000)  # 2 second additional wait
+        
+        # Get the full page HTML content
+        html_content = await page.content()
+        logger.info(f"📝 Retrieved HTML content ({len(html_content)} characters)")
+        
+        # Parse HTML content with BeautifulSoup
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # Remove script and style elements
+        for script in soup(["script", "style", "noscript"]):
+            script.decompose()
+        
+        # Get text content
+        text = soup.get_text()
+        
+        # Clean up whitespace
+        lines = (line.strip() for line in text.splitlines())
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        text = ' '.join(chunk for chunk in chunks if chunk)
+        
+        # Limit content size but allow more for complex pages
+        final_text = text[:15000]  # Increased limit for JavaScript-heavy pages
+        
+        logger.info(f"🎯 Extracted {len(final_text)} characters of clean text content")
+        return final_text
+        
     except Exception as e:
-        logger.error(f"Error fetching webpage content: {str(e)}")
+        error_msg = f"Playwright fetch failed for {url}: {str(e)}"
+        logger.error(f"🔴 {error_msg}")
+        
+        # Log specific error types for debugging
+        if "403" in str(e):
+            logger.error("🚫 403 Forbidden - Website blocking access despite browser simulation")
+        elif "timeout" in str(e).lower():
+            logger.error("⏰ Timeout - Page took too long to load")
+        elif "net::" in str(e):
+            logger.error("🌐 Network error - Connection or DNS issues")
+        
         raise Exception(f"Failed to fetch webpage content: {str(e)}")
+        
+    finally:
+        # Ensure cleanup happens even if there's an error
+        try:
+            if page:
+                await page.close()
+                logger.debug("📄 Page closed")
+            if context:
+                await context.close()
+                logger.debug("🔒 Context closed")
+            if browser:
+                await browser.close()
+                logger.debug("🌐 Browser closed")
+        except Exception as cleanup_error:
+            logger.warning(f"⚠️ Cleanup error: {cleanup_error}")
 
 def create_enhanced_extraction_prompt(content: str, url: str) -> str:
     """Create a comprehensive prompt for extracting funding opportunity data across different donor websites"""
