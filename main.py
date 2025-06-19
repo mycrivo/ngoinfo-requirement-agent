@@ -12,8 +12,15 @@ from models import Base
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Re-enable DB table creation
-Base.metadata.create_all(bind=engine)
+# Re-enable DB table creation with error handling for local development
+try:
+    Base.metadata.create_all(bind=engine)
+    logger.info("✅ Database tables created successfully")
+    db_available = True
+except Exception as e:
+    logger.warning(f"⚠️ Database not available (likely local development): {str(e)}")
+    logger.warning("🚀 Server will start without database connection - suitable for Railway deployment")
+    db_available = False
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -46,7 +53,7 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "database": "connected"}
+    return {"status": "healthy", "database": "connected" if db_available else "not_available"}
 
 if __name__ == "__main__":
     import uvicorn
