@@ -29,8 +29,12 @@ EXPECTED_FIELDS = {
 async def fetch_webpage_content(url: str) -> str:
     """Fetch and extract text content from a webpage"""
     try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
         async with httpx.AsyncClient(timeout=30.0) as http_client:
-            response = await http_client.get(url)
+            response = await http_client.get(url, headers=headers)
             response.raise_for_status()
             
             # Parse HTML content
