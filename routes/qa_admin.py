@@ -7,6 +7,12 @@ from typing import List, Dict, Any
 
 from db import get_db
 from models import FundingOpportunity, StatusEnum
+from utils.auth import (
+    verify_admin_credentials, 
+    create_session_token, 
+    get_session_user,
+    require_admin_auth
+)
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -17,10 +23,87 @@ router = APIRouter(prefix="/admin", tags=["qa-admin"])
 # Set up Jinja2 templates
 templates = Jinja2Templates(directory="templates")
 
+@router.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, error: str = ""):
+    """
+    Admin login page
+    """
+    return templates.TemplateResponse(
+        "login.html",
+        {
+            "request": request,
+            "error": error if error else None
+        }
+    )
+
+@router.post("/login")
+async def login_submit(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...)
+):
+    """
+    Process admin login
+    """
+    try:
+        if verify_admin_credentials(username, password):
+            # Create session token
+            session_token = create_session_token(username)
+            
+            # Create redirect response
+            response = RedirectResponse(
+                url="/admin/qa-review",
+                status_code=303
+            )
+            
+            # Set secure session cookie
+            response.set_cookie(
+                key="admin_session",
+                value=session_token,
+                httponly=True,
+                secure=False,  # Set to True in production with HTTPS
+                samesite="lax",
+                max_age=86400  # 24 hours
+            )
+            
+            logger.info(f"✅ Admin login successful for user: {username}")
+            return response
+        else:
+            logger.warning(f"❌ Failed login attempt for user: {username}")
+            return templates.TemplateResponse(
+                "login.html",
+                {
+                    "request": request,
+                    "error": "Invalid username or password",
+                    "username": username
+                }
+            )
+    except Exception as e:
+        logger.error(f"🔴 Error during login: {str(e)}")
+        return templates.TemplateResponse(
+            "login.html",
+            {
+                "request": request,
+                "error": "An error occurred during login",
+                "username": username
+            }
+        )
+
+@router.get("/logout")
+async def logout(request: Request):
+    """
+    Admin logout
+    """
+    response = RedirectResponse(url="/admin/login", status_code=303)
+    response.delete_cookie("admin_session")
+    logger.info("🔓 Admin logout successful")
+    return response
+
 @router.get("/qa-review", response_class=HTMLResponse)
 async def qa_review_dashboard(
     request: Request,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: str = Depends(require_admin_auth)
 ):
     """
     QA Review Dashboard - Display all raw funding opportunities for review
@@ -31,7 +114,7 @@ async def qa_review_dashboard(
             FundingOpportunity.status == StatusEnum.raw
         ).order_by(FundingOpportunity.created_at.desc()).all()
         
-        logger.info(f"📋 Retrieved {len(raw_opportunities)} raw funding opportunities for QA review")
+        logger.info(f"📋 Retrieved {len(raw_opportunities)} raw funding opportunities for QA review (User: {current_user})")
         
         # Extract relevant fields for the template
         opportunities_data = []
@@ -68,10 +151,16 @@ async def qa_review_dashboard(
                 "request": request,
                 "opportunities": opportunities_data,
                 "total_count": len(opportunities_data),
-                "page_title": "QA Review Dashboard"
+                "page_title": "QA Review Dashboard",
+                "current_user": current_user
             }
         )
         
+    except HTTPException as e:
+        if e.status_code == 302:
+            # Redirect to login
+            return RedirectResponse(url="/admin/login", status_code=302)
+        raise
     except Exception as e:
         logger.error(f"🔴 Error in QA review dashboard: {str(e)}")
         raise HTTPException(
@@ -83,13 +172,14 @@ async def qa_review_dashboard(
 async def update_qa_review(
     id: int = Form(...),
     editable_text: str = Form(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: str = Depends(require_admin_auth)
 ):
     """
     Update QA review - Update editable_text and set status to reviewed
     """
     try:
-        logger.info(f"🔄 Processing QA update for opportunity ID: {id}")
+        logger.info(f"🔄 Processing QA update for opportunity ID: {id} (User: {current_user})")
         
         # Fetch the funding opportunity record
         opportunity = db.query(FundingOpportunity).filter(
@@ -111,7 +201,7 @@ async def update_qa_review(
         db.commit()
         db.refresh(opportunity)
         
-        logger.info(f"✅ Successfully updated opportunity ID {id} - status changed to 'reviewed'")
+        logger.info(f"✅ Successfully updated opportunity ID {id} - status changed to 'reviewed' (User: {current_user})")
         
         # Redirect back to the QA review dashboard
         return RedirectResponse(
@@ -119,7 +209,10 @@ async def update_qa_review(
             status_code=303  # POST redirect
         )
         
-    except HTTPException:
+    except HTTPException as e:
+        if e.status_code == 302:
+            # Redirect to login
+            return RedirectResponse(url="/admin/login", status_code=302)
         raise
     except Exception as e:
         logger.error(f"🔴 Error updating QA review for ID {id}: {str(e)}")
