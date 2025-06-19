@@ -35,6 +35,11 @@ app.add_middleware(
 app.include_router(requirement_router)
 app.include_router(qa_admin_router)
 
+# Log registered routes
+logger.info("🚀 Routes registered:")
+logger.info("   📋 API Routes: /api/requirement/*")
+logger.info("   🔐 Admin Routes: /admin/login, /admin/logout, /admin/qa-review")
+
 @app.get("/")
 async def root():
     return {"message": "Requirement Agent API is running with database integration and QA review"}
