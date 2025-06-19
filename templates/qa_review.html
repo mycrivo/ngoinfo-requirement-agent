@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title }} - Requirement Agent</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 2em;
+        }
+        .stats {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .opportunity-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-left: 4px solid #667eea;
+        }
+        .opportunity-header {
+            display: flex;
+            justify-content: between;
+            align-items: flex-start;
+            margin-bottom: 15px;
+        }
+        .opportunity-title {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        .opportunity-meta {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 10px;
+        }
+        .field-row {
+            display: grid;
+            grid-template-columns: 120px 1fr;
+            gap: 10px;
+            margin-bottom: 8px;
+            align-items: start;
+        }
+        .field-label {
+            font-weight: bold;
+            color: #555;
+        }
+        .field-value {
+            color: #333;
+        }
+        .themes-list {
+            background: #f8f9fa;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        .confidence-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        .confidence-high { background: #d4edda; color: #155724; }
+        .confidence-medium { background: #fff3cd; color: #856404; }
+        .confidence-low { background: #f8d7da; color: #721c24; }
+        .warning-box {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 4px;
+            padding: 10px;
+            margin-top: 10px;
+            font-size: 0.9em;
+        }
+        .missing-fields {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 4px;
+            padding: 8px;
+            margin-top: 8px;
+            font-size: 0.85em;
+        }
+        .actions {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+        }
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+            margin-right: 10px;
+        }
+        .btn-primary { background: #667eea; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-warning { background: #ffc107; color: #212529; }
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔍 {{ page_title }}</h1>
+        <p>Review and approve funding opportunities extracted by AI</p>
+    </div>
+
+    <div class="stats">
+        <strong>📊 Total Raw Opportunities: {{ total_count }}</strong>
+        {% if total_count > 0 %}
+            <span style="margin-left: 20px; color: #666;">
+                Showing all opportunities awaiting QA review
+            </span>
+        {% endif %}
+    </div>
+
+    {% if opportunities %}
+        {% for opp in opportunities %}
+        <div class="opportunity-card">
+            <div class="opportunity-header">
+                <div>
+                    <div class="opportunity-title">{{ opp.title }}</div>
+                    <div class="opportunity-meta">
+                        ID: {{ opp.id }} | Created: {{ opp.created_at }}
+                        {% if opp.confidence_score %}
+                            | 
+                            {% if opp.confidence_score >= 80 %}
+                                <span class="confidence-badge confidence-high">{{ opp.confidence_score }}% Confidence</span>
+                            {% elif opp.confidence_score >= 60 %}
+                                <span class="confidence-badge confidence-medium">{{ opp.confidence_score }}% Confidence</span>
+                            {% else %}
+                                <span class="confidence-badge confidence-low">{{ opp.confidence_score }}% Confidence</span>
+                            {% endif %}
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="field-row">
+                <div class="field-label">Donor:</div>
+                <div class="field-value">{{ opp.donor }}</div>
+            </div>
+
+            <div class="field-row">
+                <div class="field-label">Deadline:</div>
+                <div class="field-value">{{ opp.deadline }}</div>
+            </div>
+
+            <div class="field-row">
+                <div class="field-label">Themes:</div>
+                <div class="field-value">
+                    <div class="themes-list">{{ opp.themes_display or "No themes specified" }}</div>
+                </div>
+            </div>
+
+            <div class="field-row">
+                <div class="field-label">Source URL:</div>
+                <div class="field-value">
+                    <a href="{{ opp.source_url }}" target="_blank" style="color: #667eea;">{{ opp.source_url }}</a>
+                </div>
+            </div>
+
+            {% if opp.editable_text %}
+            <div class="field-row">
+                <div class="field-label">Notes:</div>
+                <div class="field-value">{{ opp.editable_text }}</div>
+            </div>
+            {% endif %}
+
+            {% if opp.extraction_warning %}
+            <div class="warning-box">
+                <strong>⚠️ Extraction Warning:</strong> {{ opp.extraction_warning }}
+            </div>
+            {% endif %}
+
+            {% if opp.missing_required %}
+            <div class="missing-fields">
+                <strong>🚨 Missing Required Fields:</strong> {{ opp.missing_required | join(', ') }}
+            </div>
+            {% endif %}
+
+            <div class="actions">
+                <button class="btn btn-success" onclick="approveOpportunity({{ opp.id }})">
+                    ✅ Approve
+                </button>
+                <button class="btn btn-warning" onclick="editOpportunity({{ opp.id }})">
+                    ✏️ Edit
+                </button>
+                <button class="btn btn-primary" onclick="viewDetails({{ opp.id }})">
+                    👁️ View Full Details
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="empty-state">
+            <h2>🎉 All caught up!</h2>
+            <p>No funding opportunities awaiting QA review.</p>
+        </div>
+    {% endif %}
+
+    <script>
+        function approveOpportunity(id) {
+            if (confirm('Approve this funding opportunity?')) {
+                // TODO: Implement approve API call
+                alert('Approve functionality to be implemented');
+            }
+        }
+
+        function editOpportunity(id) {
+            // TODO: Implement edit functionality
+            alert('Edit functionality to be implemented');
+        }
+
+        function viewDetails(id) {
+            // TODO: Implement view details
+            window.open(`/api/requirement/opportunities/${id}`, '_blank');
+        }
+    </script>
+</body>
+</html> 

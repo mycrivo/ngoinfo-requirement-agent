@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import logging
 
 from routes.requirement_agent import router as requirement_router
+from routes.qa_admin import router as qa_admin_router
 # Re-enable DB-related imports
 from db import engine
 from models import Base
@@ -17,7 +18,7 @@ Base.metadata.create_all(bind=engine)
 # Initialize FastAPI app
 app = FastAPI(
     title="Requirement Agent API",
-    description="API for parsing funding opportunities from URLs with database storage",
+    description="API for parsing funding opportunities from URLs with database storage and QA review",
     version="2.0.0"
 )
 
@@ -32,10 +33,11 @@ app.add_middleware(
 
 # Register routes
 app.include_router(requirement_router)
+app.include_router(qa_admin_router)
 
 @app.get("/")
 async def root():
-    return {"message": "Requirement Agent API is running with database integration"}
+    return {"message": "Requirement Agent API is running with database integration and QA review"}
 
 @app.get("/health")
 async def health_check():
