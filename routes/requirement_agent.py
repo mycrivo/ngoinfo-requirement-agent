@@ -49,12 +49,20 @@ async def parse_requirement(
                 try:
                     # Create FundingData from stored JSON (backward compatibility)
                     json_data = existing_opportunity.json_data
+                    
+                    # Convert eligibility list to string if needed
+                    eligibility_value = json_data.get('eligibility')
+                    if isinstance(eligibility_value, list):
+                        eligibility_str = ", ".join(str(item) for item in eligibility_value if item)
+                    else:
+                        eligibility_str = eligibility_value if eligibility_value is not None else None
+                    
                     extracted_data = FundingData(
                         title=json_data.get('title'),
                         description=json_data.get('summary') or json_data.get('description'),
                         amount=json_data.get('amount'),
                         deadline=json_data.get('deadline'),
-                        eligibility=json_data.get('eligibility', []) if isinstance(json_data.get('eligibility'), list) else json_data.get('eligibility'),
+                        eligibility=eligibility_str,
                         requirements=json_data.get('how_to_apply') or json_data.get('requirements'),
                         contact_info=json_data.get('contact_info')
                     )
@@ -102,12 +110,19 @@ async def parse_requirement(
         logger.info(f"💾 Successfully saved funding opportunity to database (ID: {funding_opportunity.id})")
         
         # Create FundingData response for backward compatibility
+        # Convert eligibility list to string if needed
+        eligibility_value = parsed_data.get('eligibility')
+        if isinstance(eligibility_value, list):
+            eligibility_str = ", ".join(str(item) for item in eligibility_value if item)
+        else:
+            eligibility_str = eligibility_value if eligibility_value is not None else None
+        
         extracted_data = FundingData(
             title=parsed_data.get('title'),
             description=parsed_data.get('summary') or parsed_data.get('description'),
             amount=parsed_data.get('amount'),
             deadline=parsed_data.get('deadline'),
-            eligibility=parsed_data.get('eligibility', []) if isinstance(parsed_data.get('eligibility'), list) else parsed_data.get('eligibility'),
+            eligibility=eligibility_str,
             requirements=parsed_data.get('how_to_apply') or parsed_data.get('requirements'),
             contact_info=parsed_data.get('contact_info')
         )
