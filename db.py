@@ -7,6 +7,16 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+# Debug: Print all environment variables that start with PG or DATABASE
+print("=== DATABASE ENVIRONMENT VARIABLES ===")
+for key, value in os.environ.items():
+    if key.startswith(('PG', 'DATABASE')):
+        if 'PASSWORD' in key:
+            print(f"{key}: ***")
+        else:
+            print(f"{key}: {value}")
+print("=" * 40)
+
 # Database URL from environment with Railway compatibility
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -19,12 +29,19 @@ if not DATABASE_URL:
     DB_PASSWORD = os.getenv("PGPASSWORD", "password")
     
     DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    print(f"Built DATABASE_URL from individual components")
 
 # Handle Railway's postgres:// vs postgresql:// URL format
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    print("Converted postgres:// to postgresql://")
 
-print(f"Connecting to database: {DATABASE_URL.replace(DATABASE_URL.split('@')[0].split('//')[1], '***:***')}")
+# Safe logging of connection string
+if DATABASE_URL and '@' in DATABASE_URL:
+    safe_url = DATABASE_URL.replace(DATABASE_URL.split('@')[0].split('//')[1], '***:***')
+    print(f"Connecting to database: {safe_url}")
+else:
+    print(f"DATABASE_URL format: {DATABASE_URL[:20]}...")
 
 # Create SQLAlchemy engine with connection pooling for production
 engine = create_engine(
