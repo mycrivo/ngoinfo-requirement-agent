@@ -1,0 +1,5 @@
+{
+  "build": {
+    "postInstallCommand": "playwright install"
+  }
+} 
