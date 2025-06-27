@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Query
 from sqlalchemy.orm import Session
 import logging
 import json
@@ -72,22 +72,29 @@ router = APIRouter(prefix="/api", tags=["requirement-agent"])
 @router.post("/requirement/parse", response_model=ParseRequirementResponse)
 async def parse_requirement(
     request: ParseRequirementRequest,
+    force_refresh: bool = Query(False, description="If True, bypass cache and re-parse the URL even if it exists"),
     db: Session = Depends(get_db)
 ):
     """
     Parse a funding opportunity from a URL using enhanced OpenAI extraction with database storage
+    
+    Args:
+        request: ParseRequirementRequest containing the URL to parse
+        force_refresh: If True, bypass cache and re-parse the URL even if it exists (default: False)
+        db: Database session dependency
     """
     try:
         url_str = str(request.url)
-        logger.info(f"🔍 Processing funding opportunity request for URL: {url_str}")
+        logger.info(f"🔍 Processing funding opportunity request for URL: {url_str} (force_refresh={force_refresh})")
         
         # Check if URL already exists in database
         existing_opportunity = db.query(FundingOpportunity).filter(
             FundingOpportunity.source_url == url_str
         ).first()
         
-        if existing_opportunity:
-            logger.info(f"📋 Found existing record for URL: {url_str} (ID: {existing_opportunity.id})")
+        # If existing record found and force_refresh is False, return cached data
+        if existing_opportunity and not force_refresh:
+            logger.info(f"📋 Found existing record for URL: {url_str} (ID: {existing_opportunity.id}) - returning cached data")
             
             # Convert stored JSON data to FundingData for response
             extracted_data = None
@@ -128,6 +135,10 @@ async def parse_requirement(
                 extracted_data=extracted_data
             )
         
+        # If force_refresh=True and record exists, log that we're updating
+        if existing_opportunity and force_refresh:
+            logger.info(f"🔄 Force refresh requested for URL: {url_str} (ID: {existing_opportunity.id}) - re-parsing and updating")
+        
         # Parse new URL using enhanced parser
         logger.info(f"🚀 Parsing new URL with enhanced gold-standard extraction: {url_str}")
         parsed_data = await parse_funding_opportunity_from_url(url_str)
@@ -147,15 +158,24 @@ async def parse_requirement(
         if missing_required:
             logger.warning(f"🚨 QA ALERT - Missing required fields for {url_str}: {missing_required}")
         
-        # Create database record
-        funding_opportunity = FundingOpportunity(
-            source_url=url_str,
-            json_data=parsed_data,  # Store the complete enhanced JSON structure
-            editable_text="",  # Empty for now as requested
-            status=StatusEnum.raw
-        )
+        # Create or update database record
+        if existing_opportunity and force_refresh:
+            # Update existing record with new parsed data
+            existing_opportunity.json_data = parsed_data
+            existing_opportunity.status = StatusEnum.raw  # Reset status to raw for QA review
+            funding_opportunity = existing_opportunity
+            logger.info(f"🔄 Updated existing funding opportunity (ID: {existing_opportunity.id}) with fresh data")
+        else:
+            # Create new database record
+            funding_opportunity = FundingOpportunity(
+                source_url=url_str,
+                json_data=parsed_data,  # Store the complete enhanced JSON structure
+                editable_text="",  # Empty for now as requested
+                status=StatusEnum.raw
+            )
+            db.add(funding_opportunity)
+            logger.info(f"💾 Created new funding opportunity record")
         
-        db.add(funding_opportunity)
         db.commit()
         db.refresh(funding_opportunity)
         
@@ -185,13 +205,15 @@ async def parse_requirement(
         
         extracted_data = FundingData(**enriched_data)
         
-        # Determine response message based on extraction quality
+        # Determine response message based on extraction quality and operation type
+        operation = "updated" if (existing_opportunity and force_refresh) else "parsed and saved"
+        
         if confidence_score >= 80:
-            message = f"Successfully parsed and saved funding opportunity with high confidence ({confidence_score}%)"
+            message = f"Successfully {operation} funding opportunity with high confidence ({confidence_score}%)"
         elif confidence_score >= 60:
-            message = f"Parsed and saved funding opportunity with medium confidence ({confidence_score}%) - QA review recommended"
+            message = f"{operation.capitalize()} funding opportunity with medium confidence ({confidence_score}%) - QA review recommended"
         else:
-            message = f"Parsed and saved funding opportunity with low confidence ({confidence_score}%) - Manual QA required"
+            message = f"{operation.capitalize()} funding opportunity with low confidence ({confidence_score}%) - Manual QA required"
         
         if extraction_warning:
             message += f" | Warning: {extraction_warning}"
