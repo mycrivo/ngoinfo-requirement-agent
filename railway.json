@@ -1,5 +1,5 @@
 {
   "build": {
-    "postInstallCommand": "playwright install-deps && playwright install chromium"
+    "dockerfile": "Dockerfile"
   }
 } 
