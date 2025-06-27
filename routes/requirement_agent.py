@@ -20,6 +20,52 @@ from utils.openai_parser import parse_funding_opportunity_from_url
 # Set up logging
 logger = logging.getLogger(__name__)
 
+def enrich_extracted_data(extracted_data: Dict[str, Any], json_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Silently enrich extracted_data with missing information from json_data
+    """
+    # Create a copy to avoid modifying the original
+    enriched_data = extracted_data.copy()
+    
+    # Rule 1: Add donor if missing in extracted_data but available in json_data
+    if not enriched_data.get('donor') and json_data.get('donor'):
+        enriched_data['donor'] = json_data.get('donor')
+    
+    # Rule 2: Add themes as comma-separated string if missing in extracted_data
+    if not enriched_data.get('themes') and json_data.get('themes'):
+        themes = json_data.get('themes')
+        if isinstance(themes, list):
+            enriched_data['themes'] = ", ".join(str(theme) for theme in themes if theme)
+        elif themes:
+            enriched_data['themes'] = str(themes)
+    
+    # Rule 3: Clean location to region/country level if missing or verbose
+    json_location = json_data.get('location')
+    if json_location and (not enriched_data.get('location') or len(enriched_data.get('location', '')) > 100):
+        # Clean location to region/country level
+        location_str = str(json_location)
+        # Extract key location identifiers (country, region)
+        location_keywords = ['UK', 'United Kingdom', 'England', 'Scotland', 'Wales', 'Northern Ireland', 
+                           'Europe', 'North America', 'USA', 'Canada', 'Australia', 'Global', 'International']
+        
+        # Try to find a concise location
+        for keyword in location_keywords:
+            if keyword.lower() in location_str.lower():
+                enriched_data['location'] = keyword
+                break
+        else:
+            # If no keyword found, use first 50 chars and clean up
+            clean_location = location_str.strip()[:50].strip()
+            if clean_location:
+                enriched_data['location'] = clean_location
+    
+    # Rule 4: Normalize "Unknown" to "Not specified" across all fields
+    for key, value in enriched_data.items():
+        if isinstance(value, str) and value.strip().lower() == 'unknown':
+            enriched_data[key] = 'Not specified'
+    
+    return enriched_data
+
 # Create router
 router = APIRouter(prefix="/api", tags=["requirement-agent"])
 
@@ -57,15 +103,21 @@ async def parse_requirement(
                     else:
                         eligibility_str = eligibility_value if eligibility_value is not None else None
                     
-                    extracted_data = FundingData(
-                        title=json_data.get('title'),
-                        description=json_data.get('summary') or json_data.get('description'),
-                        amount=json_data.get('amount'),
-                        deadline=json_data.get('deadline'),
-                        eligibility=eligibility_str,
-                        requirements=json_data.get('how_to_apply') or json_data.get('requirements'),
-                        contact_info=json_data.get('contact_info')
-                    )
+                    # Create base extracted_data
+                    base_extracted_data = {
+                        'title': json_data.get('title'),
+                        'description': json_data.get('summary') or json_data.get('description'),
+                        'amount': json_data.get('amount'),
+                        'deadline': json_data.get('deadline'),
+                        'eligibility': eligibility_str,
+                        'requirements': json_data.get('how_to_apply') or json_data.get('requirements'),
+                        'contact_info': json_data.get('contact_info')
+                    }
+                    
+                    # Enrich with missing information from json_data
+                    enriched_data = enrich_extracted_data(base_extracted_data, json_data)
+                    
+                    extracted_data = FundingData(**enriched_data)
                 except Exception as e:
                     logger.warning(f"⚠️ Could not convert stored JSON to FundingData: {e}")
             
@@ -117,15 +169,21 @@ async def parse_requirement(
         else:
             eligibility_str = eligibility_value if eligibility_value is not None else None
         
-        extracted_data = FundingData(
-            title=parsed_data.get('title'),
-            description=parsed_data.get('summary') or parsed_data.get('description'),
-            amount=parsed_data.get('amount'),
-            deadline=parsed_data.get('deadline'),
-            eligibility=eligibility_str,
-            requirements=parsed_data.get('how_to_apply') or parsed_data.get('requirements'),
-            contact_info=parsed_data.get('contact_info')
-        )
+        # Create base extracted_data
+        base_extracted_data = {
+            'title': parsed_data.get('title'),
+            'description': parsed_data.get('summary') or parsed_data.get('description'),
+            'amount': parsed_data.get('amount'),
+            'deadline': parsed_data.get('deadline'),
+            'eligibility': eligibility_str,
+            'requirements': parsed_data.get('how_to_apply') or parsed_data.get('requirements'),
+            'contact_info': parsed_data.get('contact_info')
+        }
+        
+        # Enrich with missing information from json_data
+        enriched_data = enrich_extracted_data(base_extracted_data, parsed_data)
+        
+        extracted_data = FundingData(**enriched_data)
         
         # Determine response message based on extraction quality
         if confidence_score >= 80:

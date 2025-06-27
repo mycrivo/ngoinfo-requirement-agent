@@ -14,6 +14,9 @@ class FundingData(BaseModel):
     eligibility: Optional[str] = None
     requirements: Optional[str] = None
     contact_info: Optional[str] = None
+    donor: Optional[str] = None
+    themes: Optional[str] = None
+    location: Optional[str] = None
 
 class FundingOpportunityResponse(BaseModel):
     id: int
