@@ -66,6 +66,86 @@ def enrich_extracted_data(extracted_data: Dict[str, Any], json_data: Dict[str, A
     
     return enriched_data
 
+def generate_blog_post(opportunity: dict) -> str:
+    """
+    Generate a clean, markdown-formatted blog post from a funding opportunity record
+    
+    Args:
+        opportunity: Dictionary containing funding opportunity data with json_data
+    
+    Returns:
+        str: Markdown-formatted blog post content
+    """
+    # Extract json_data from opportunity record
+    json_data = opportunity.get('json_data', {})
+    
+    # Extract key fields with fallbacks
+    title = json_data.get('title', 'Funding Opportunity')
+    location = json_data.get('location', 'Location TBA')
+    amount = json_data.get('amount', 'Amount TBA')
+    deadline = json_data.get('deadline', 'Deadline TBA')
+    donor = json_data.get('donor', 'Donor TBA')
+    summary = json_data.get('summary', 'Summary to be added.')
+    eligibility = json_data.get('eligibility', [])
+    opportunity_url = json_data.get('opportunity_url', opportunity.get('source_url', '#'))
+    
+    # Clean and format title
+    blog_title = f"{title} – {location} ({amount})"
+    
+    # Start building the markdown content
+    markdown_content = f"# {blog_title}\n\n"
+    
+    # Opportunity Snapshot section
+    markdown_content += "## Opportunity Snapshot\n\n"
+    markdown_content += f"**Deadline:** {deadline}\n\n"
+    markdown_content += f"**Funding Size:** {amount}\n\n"
+    markdown_content += f"**Donor:** {donor}\n\n"
+    markdown_content += f"**Country:** {location}\n\n"
+    markdown_content += f"**Opportunity URL:** [{opportunity_url}]({opportunity_url})\n\n"
+    
+    # Summary Paragraph
+    markdown_content += "## Summary\n\n"
+    markdown_content += f"{summary}\n\n"
+    
+    # Funding Details (if available in summary)
+    if summary and len(summary.strip()) > 0:
+        markdown_content += "## Funding Details\n\n"
+        markdown_content += f"{summary}\n\n"
+    
+    # Eligibility Criteria
+    markdown_content += "## Eligibility Criteria\n\n"
+    if eligibility:
+        if isinstance(eligibility, list):
+            for criterion in eligibility:
+                if criterion and str(criterion).strip():
+                    markdown_content += f"- {str(criterion).strip()}\n"
+        elif isinstance(eligibility, str) and eligibility.strip():
+            # If eligibility is a string, split by common delimiters and create bullet points
+            criteria_items = []
+            for delimiter in [', ', '; ', ' and ', ' & ']:
+                if delimiter in eligibility:
+                    criteria_items = [item.strip() for item in eligibility.split(delimiter) if item.strip()]
+                    break
+            
+            if criteria_items:
+                for criterion in criteria_items:
+                    markdown_content += f"- {criterion}\n"
+            else:
+                markdown_content += f"- {eligibility}\n"
+        markdown_content += "\n"
+    else:
+        markdown_content += "- Eligibility criteria to be confirmed\n\n"
+    
+    # Geographic Focus
+    markdown_content += "## Geographic Focus\n\n"
+    markdown_content += f"This opportunity is open to organizations based in {location}.\n\n"
+    
+    # Selection Criteria
+    markdown_content += "## Selection Criteria\n\n"
+    markdown_content += "_Selection criteria to be added by QA._\n\n"
+    
+    return markdown_content
+
 # Create router
 router = APIRouter(prefix="/api", tags=["requirement-agent"])
 
