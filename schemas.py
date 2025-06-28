@@ -33,4 +33,14 @@ class ParseRequirementResponse(BaseModel):
     success: bool
     message: str
     data: Optional[FundingOpportunityResponse] = None
-    extracted_data: Optional[FundingData] = None 
+    extracted_data: Optional[FundingData] = None
+
+class GenerateBlogRequest(BaseModel):
+    opportunity_id: int
+
+class GenerateBlogResponse(BaseModel):
+    success: bool
+    opportunity_id: Optional[int] = None
+    title: Optional[str] = None
+    blog_post: Optional[str] = None
+    message: Optional[str] = None 

@@ -11,7 +11,9 @@ from schemas import (
     ParseRequirementRequest, 
     ParseRequirementResponse, 
     FundingOpportunityResponse,
-    FundingData
+    FundingData,
+    GenerateBlogRequest,
+    GenerateBlogResponse
 )
 
 # Enhanced parser import
@@ -311,6 +313,74 @@ async def parse_requirement(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to parse and save funding opportunity: {str(e)}"
+        )
+
+@router.post("/requirement/generate-blog", response_model=GenerateBlogResponse)
+async def generate_blog(
+    request: GenerateBlogRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Generate a blog post from an existing funding opportunity record
+    
+    Args:
+        request: GenerateBlogRequest containing opportunity_id
+        db: Database session dependency
+    
+    Returns:
+        GenerateBlogResponse with blog content or error message
+    """
+    try:
+        opportunity_id = request.opportunity_id
+        logger.info(f"🖊️ Generating blog post for opportunity ID: {opportunity_id}")
+        
+        # Look up the funding opportunity by ID
+        opportunity = db.query(FundingOpportunity).filter(
+            FundingOpportunity.id == opportunity_id
+        ).first()
+        
+        if not opportunity:
+            logger.warning(f"❌ Funding opportunity with ID {opportunity_id} not found")
+            return GenerateBlogResponse(
+                success=False,
+                message=f"Funding opportunity with ID {opportunity_id} not found"
+            )
+        
+        # Convert SQLAlchemy model to dictionary for generate_blog_post function
+        opportunity_dict = {
+            "id": opportunity.id,
+            "source_url": opportunity.source_url,
+            "json_data": opportunity.json_data or {},
+            "editable_text": opportunity.editable_text,
+            "status": opportunity.status.value,
+            "created_at": opportunity.created_at
+        }
+        
+        # Generate blog post content
+        blog_content = generate_blog_post(opportunity_dict)
+        
+        # Extract title for response
+        json_data = opportunity.json_data or {}
+        title = json_data.get('title', 'Funding Opportunity')
+        location = json_data.get('location', 'Location TBA')
+        amount = json_data.get('amount', 'Amount TBA')
+        generated_title = f"{title} – {location} ({amount})"
+        
+        logger.info(f"✅ Successfully generated blog post for opportunity ID: {opportunity_id}")
+        
+        return GenerateBlogResponse(
+            success=True,
+            opportunity_id=opportunity_id,
+            title=generated_title,
+            blog_post=blog_content,
+            message="Blog post generated successfully"
+        )
+        
+    except Exception as e:
+        logger.error(f"🔴 Error generating blog post for opportunity ID {request.opportunity_id}: {str(e)}")
+        return GenerateBlogResponse(
+            success=False,
+            message=f"Failed to generate blog post: {str(e)}"
         )
 
 @router.get("/requirement/opportunities", response_model=list[FundingOpportunityResponse])
