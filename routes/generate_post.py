@@ -6,6 +6,7 @@ import os
 from typing import Dict, Any, List, Optional
 import json
 import re
+from bs4 import BeautifulSoup
 
 # Database imports
 from db import get_db
@@ -22,17 +23,108 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 # Create router
 router = APIRouter(prefix="/api", tags=["blog-generation"])
 
+def sanitize_input_string(input_string: str) -> str:
+    """Sanitize input strings to remove invalid control characters before sending to OpenAI"""
+    if not input_string:
+        return ""
+    
+    # Remove control characters (except newlines and tabs)
+    sanitized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", input_string)
+    
+    # Log if we found and removed problematic characters
+    if sanitized != input_string:
+        logger.warning(f"🧹 Sanitized input string: removed {len(input_string) - len(sanitized)} control characters")
+    
+    return sanitized.strip()
+
+def sanitize_openai_response(response_text: str) -> str:
+    """Sanitize OpenAI response to remove invalid control characters before json.loads"""
+    if not response_text:
+        return ""
+    
+    try:
+        # First pass: Encode/decode to handle UTF-8 issues
+        safe_text = response_text.encode("utf-8", "ignore").decode("utf-8")
+        
+        # Second pass: Remove remaining control characters (except newlines and tabs)
+        clean_text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", safe_text)
+        
+        # Log if we found and removed problematic characters
+        if clean_text != response_text:
+            logger.warning(f"🧹 Sanitized OpenAI response: removed {len(response_text) - len(clean_text)} problematic characters")
+            logger.debug(f"Original length: {len(response_text)}, Clean length: {len(clean_text)}")
+        
+        return clean_text
+        
+    except Exception as e:
+        logger.error(f"🔴 Error sanitizing OpenAI response: {e}")
+        # Fallback: more aggressive cleaning
+        return re.sub(r"[^\x20-\x7E\n\t]", "", response_text)
+
+def count_words_in_html(html_content: str) -> int:
+    """Count words in HTML content by extracting text"""
+    try:
+        soup = BeautifulSoup(html_content, 'html.parser')
+        text = soup.get_text()
+        words = len(text.split())
+        return words
+    except Exception as e:
+        logger.warning(f"⚠️ Error counting words in HTML: {e}")
+        # Fallback to simple word count
+        return len(html_content.split())
+
+def check_seo_keywords_coverage(content: str, seo_keywords: str) -> Dict[str, Any]:
+    """Check if SEO keywords appear in the content"""
+    if not seo_keywords:
+        return {"missing_keywords": [], "coverage_percentage": 100}
+    
+    keywords = [kw.strip().lower() for kw in seo_keywords.split(',') if kw.strip()]
+    content_lower = content.lower()
+    
+    missing_keywords = []
+    found_keywords = []
+    
+    for keyword in keywords:
+        if keyword in content_lower:
+            found_keywords.append(keyword)
+        else:
+            missing_keywords.append(keyword)
+    
+    coverage_percentage = (len(found_keywords) / len(keywords)) * 100 if keywords else 100
+    
+    return {
+        "missing_keywords": missing_keywords,
+        "found_keywords": found_keywords,
+        "coverage_percentage": coverage_percentage
+    }
+
 class BlogPostGenerator:
     """OpenAI-powered blog post generator for funding opportunities"""
     
     # Current prompt version for tracking
-    CURRENT_PROMPT_VERSION = "v1.2"
+    CURRENT_PROMPT_VERSION = "v2.0_enhanced"
     
     def __init__(self):
         if not openai.api_key:
             raise ValueError("OpenAI API key not configured. Please set OPENAI_API_KEY environment variable.")
     
-    def create_blog_generation_prompt(
+    def get_word_count_range(self, length: str) -> tuple[int, int]:
+        """Get word count range for the specified length"""
+        length_ranges = {
+            "short": (800, 1200),
+            "medium": (1200, 1800), 
+            "long": (1800, 2500)
+        }
+        return length_ranges.get(length, (1200, 1800))
+    
+    def estimate_max_tokens(self, target_words: int) -> int:
+        """Estimate max tokens needed based on target word count"""
+        # Rule of thumb: 1 word ≈ 1.3 tokens, add buffer for HTML tags and structure
+        estimated_tokens = int(target_words * 1.5) + 500
+        # Cap at OpenAI limits
+        return min(estimated_tokens, 4000)
+    
+    def create_enhanced_blog_prompt(
         self, 
         funding_data: Dict[str, Any], 
         seo_keywords: Optional[str] = None,
@@ -40,108 +132,108 @@ class BlogPostGenerator:
         length: str = "medium",
         extra_instructions: Optional[str] = None
     ) -> str:
-        """Create a structured prompt for OpenAI to generate a blog post"""
+        """Create an enhanced prompt for comprehensive blog post generation"""
         
-        # Extract funding information
-        title = funding_data.get('title', 'Funding Opportunity')
-        donor = funding_data.get('donor', 'N/A')
-        summary = funding_data.get('summary', 'Summary not available')
-        amount = funding_data.get('amount', 'Amount TBA')
-        deadline = funding_data.get('deadline', 'Deadline TBA')
-        location = funding_data.get('location', 'Location TBA')
+        # Sanitize all inputs
+        seo_keywords = sanitize_input_string(seo_keywords or "")
+        extra_instructions = sanitize_input_string(extra_instructions or "")
+        
+        # Extract and sanitize funding information
+        title = sanitize_input_string(funding_data.get('title', 'Funding Opportunity'))
+        donor = sanitize_input_string(funding_data.get('donor', 'N/A'))
+        summary = sanitize_input_string(funding_data.get('summary', 'Summary not available'))
+        amount = sanitize_input_string(funding_data.get('amount', 'Amount TBA'))
+        deadline = sanitize_input_string(funding_data.get('deadline', 'Deadline TBA'))
+        location = sanitize_input_string(funding_data.get('location', 'Location TBA'))
+        how_to_apply = sanitize_input_string(funding_data.get('how_to_apply', 'Application process TBA'))
+        opportunity_url = sanitize_input_string(funding_data.get('opportunity_url', '#'))
+        
+        # Handle eligibility and themes
         eligibility = funding_data.get('eligibility', [])
         themes = funding_data.get('themes', [])
-        how_to_apply = funding_data.get('how_to_apply', 'Application process TBA')
-        opportunity_url = funding_data.get('opportunity_url', '#')
         
-        # Convert eligibility to string if it's a list
         if isinstance(eligibility, list):
-            eligibility_text = ". ".join(str(item) for item in eligibility if item)
+            eligibility_text = ". ".join(sanitize_input_string(str(item)) for item in eligibility if item)
         else:
-            eligibility_text = str(eligibility) if eligibility else "Eligibility criteria TBA"
+            eligibility_text = sanitize_input_string(str(eligibility)) if eligibility else "Eligibility criteria will be specified in the full application guidelines"
         
-        # Convert themes to string if it's a list
         if isinstance(themes, list):
-            themes_text = ", ".join(str(theme) for theme in themes if theme)
+            themes_text = ", ".join(sanitize_input_string(str(theme)) for theme in themes if theme)
         else:
-            themes_text = str(themes) if themes else "General funding"
+            themes_text = sanitize_input_string(str(themes)) if themes else "General funding"
         
-        # Define length guidelines
-        length_guide = {
-            "short": "800-1200 words",
-            "medium": "1200-1800 words", 
-            "long": "1800-2500 words"
-        }
+        # Get word count range
+        min_words, max_words = self.get_word_count_range(length)
         
-        # Define tone guidelines
-        tone_guide = {
-            "professional": "authoritative, formal, and informative",
-            "persuasive": "compelling, action-oriented, and motivating",
-            "informal": "conversational, accessible, and friendly"
-        }
+        # Define tone instructions
+        tone_instructions = {
+            "professional": "Use authoritative, formal language suitable for nonprofit professionals and grant writers",
+            "persuasive": "Use compelling, action-oriented language that motivates readers to apply",
+            "informal": "Use conversational, accessible language that's friendly and approachable"
+        }.get(tone, "Use professional, engaging language")
         
-        prompt = f"""
-You are an expert content writer specializing in funding opportunity blog posts for NGOInfo, a leading resource for nonprofit funding. Create a comprehensive, SEO-optimized blog post about this funding opportunity.
+        prompt = f"""You are an expert blog writer for nonprofit audiences. Write a detailed, comprehensive blog post using the following funding opportunity data:
 
 FUNDING OPPORTUNITY DATA:
-- Title: {title}
-- Donor: {donor}
-- Summary: {summary}
-- Amount: {amount}
-- Deadline: {deadline}
-- Location: {location}
-- Eligibility: {eligibility_text}
-- Themes: {themes_text}
-- How to Apply: {how_to_apply}
-- Opportunity URL: {opportunity_url}
+Title: {title}
+Donor: {donor}
+Summary: {summary}
+Amount: {amount}
+Deadline: {deadline}
+Location: {location}
+Themes: {themes_text}
+Eligibility: {eligibility_text}
+How to Apply: {how_to_apply}
+Opportunity URL: {opportunity_url}
 
 CONTENT REQUIREMENTS:
-- Length: {length_guide.get(length, 'medium length')} ({length})
-- Tone: {tone_guide.get(tone, 'professional')} ({tone})
-- Target audience: NGO leaders, grant writers, and nonprofit professionals
-- SEO Keywords: {seo_keywords if seo_keywords else 'funding, grants, nonprofits, NGO'}
+- Target word count: {min_words}-{max_words} words (this is critical - ensure you meet this range)
+- Tone: {tone_instructions}
+- Target SEO keywords: {seo_keywords if seo_keywords else 'funding, grants, nonprofits'}
 
-BLOG POST STRUCTURE (use this exact format):
-1. Catchy, SEO-optimized title
-2. Engaging introduction paragraph (hook readers immediately)
-3. About the Donor (background, mission, previous funding)
-4. Funding Overview (amount, focus areas, project types)
-5. Eligibility Criteria (detailed requirements)
-6. How to Apply (step-by-step process)
-7. Call-to-action with opportunity URL
+BLOG POST STRUCTURE (follow this exactly):
+1. **Compelling Headline** - Use keywords naturally
+2. **Introduction** (150-200 words)
+   - Hook readers with urgent, attention-grabbing opening
+   - Highlight the opportunity value and deadline urgency
+   - Preview what readers will learn
+3. **About the Donor** (200-300 words)
+   - Background and mission of the funding organization
+   - Previous funding initiatives or success stories
+   - Why this opportunity matters
+4. **Funding Overview** (300-400 words)
+   - Detailed breakdown of funding amount and scope
+   - Project types and focus areas supported
+   - Examples of fundable activities
+5. **Who Can Apply** (200-300 words)
+   - Detailed eligibility criteria
+   - Organization types and sizes
+   - Geographic requirements
+6. **Application Process** (200-300 words)
+   - Step-by-step application guidance
+   - Required documents and deadlines
+   - Tips for successful applications
+7. **Call to Action** (100-150 words)
+   - Urgent appeal to apply
+   - Link to opportunity URL
+   - Next steps for interested organizations
 
-WRITING STYLE GUIDELINES:
-- Write in {tone_guide.get(tone, 'professional')} tone
-- Use subheadings (H2, H3) for better readability
-- Include bullet points and lists where appropriate
-- Make it conversion-focused and actionable
-- Avoid robotic or AI-generated language
-- Include relevant internal linking opportunities (mention NGOInfo resources)
-- Add urgency around deadlines
-- Use power words and emotional triggers appropriate for nonprofits
-
-SEO OPTIMIZATION:
-- Include target keywords naturally throughout
-- Write compelling meta title and description
-- Use semantic keywords related to nonprofit funding
-- Structure content for featured snippets
+WRITING GUIDELINES:
+- Use clear HTML formatting with <h2>, <h3>, <p>, <ul>, <li>, <a> tags
+- Include the SEO keywords naturally in headings and body text
+- Add specific examples and elaboration to reach the target word count
+- Create urgency around deadlines and opportunity value
+- Make content actionable and practical for nonprofit readers
+- Use bullet points and lists for better readability
+- Include the opportunity URL as a clickable link in the call to action
 
 ADDITIONAL INSTRUCTIONS:
-{extra_instructions if extra_instructions else 'Follow standard NGOInfo blog formatting and style.'}
+{extra_instructions if extra_instructions else 'Focus on creating comprehensive, valuable content that nonprofit professionals will find immediately actionable.'}
 
-OUTPUT FORMAT:
-Return a JSON object with exactly these fields:
-{{
-  "post_title": "SEO-optimized blog post title",
-  "post_content": "Full HTML blog post content with proper heading tags",
-  "meta_title": "SEO meta title (60 chars max)",
-  "meta_description": "SEO meta description (160 chars max)",
-  "tags": ["suggested", "blog", "tags"],
-  "categories": ["suggested", "categories"]
-}}
+CRITICAL: Ensure your response is between {min_words} and {max_words} words. Use examples, elaboration, and detailed explanations to reach this target. Do not write a short summary - write a full, comprehensive blog post.
 
-IMPORTANT: Return ONLY the JSON object, no additional text or formatting.
-"""
+Return only clean HTML with properly closed tags. Do not include markdown, backticks, or any other formatting."""
+
         return prompt
     
     def generate_blog_post(
@@ -152,64 +244,149 @@ IMPORTANT: Return ONLY the JSON object, no additional text or formatting.
         length: str = "medium", 
         extra_instructions: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Generate blog post using OpenAI"""
+        """Generate blog post using OpenAI with enhanced word count and SEO validation"""
         try:
-            # Create the prompt
-            prompt = self.create_blog_generation_prompt(
+            # Get target word count
+            min_words, max_words = self.get_word_count_range(length)
+            max_tokens = self.estimate_max_tokens(max_words)
+            
+            logger.info(f"🤖 Generating {length} blog post ({min_words}-{max_words} words, max {max_tokens} tokens) for: {funding_data.get('title', 'Unknown')}")
+            
+            # Create the enhanced prompt
+            prompt = self.create_enhanced_blog_prompt(
                 funding_data, seo_keywords, tone, length, extra_instructions
             )
             
-            logger.info(f"🤖 Generating blog post with OpenAI for: {funding_data.get('title', 'Unknown')}")
-            
-            # Call OpenAI API
+            # Call OpenAI API with calculated token limit
             response = openai.ChatCompletion.create(
                 model="gpt-4",
                 messages=[
                     {
                         "role": "system", 
-                        "content": "You are an expert content writer specializing in nonprofit funding blog posts. Always return valid JSON."
+                        "content": f"You are an expert content writer specializing in nonprofit funding blog posts. Always write comprehensive posts that meet the specified word count of {min_words}-{max_words} words. Return only clean HTML without any additional formatting."
                     },
                     {
                         "role": "user",
                         "content": prompt
                     }
                 ],
-                max_tokens=4000,
+                max_tokens=max_tokens,
                 temperature=0.7
             )
             
-            # Extract response content
-            generated_content = response.choices[0].message.content.strip()
-            
-            # Parse JSON response
+            # Extract and sanitize response
             try:
-                blog_data = json.loads(generated_content)
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse OpenAI JSON response: {e}")
-                # Try to extract JSON from response if it's wrapped in text
-                json_match = re.search(r'\{.*\}', generated_content, re.DOTALL)
-                if json_match:
-                    blog_data = json.loads(json_match.group())
+                if hasattr(response, 'choices') and response.choices:
+                    raw_content = response.choices[0].message.content.strip()
                 else:
-                    raise ValueError("OpenAI returned invalid JSON format")
+                    raise ValueError("Invalid OpenAI response structure")
+            except (AttributeError, IndexError, ValueError) as e:
+                logger.error(f"🔴 Failed to extract content from OpenAI response: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Invalid response from AI service. Please try again."
+                )
             
-            # Validate required fields
-            required_fields = ['post_title', 'post_content', 'meta_title', 'meta_description', 'tags', 'categories']
-            for field in required_fields:
-                if field not in blog_data:
-                    blog_data[field] = ""
+            # Sanitize the response
+            post_content = sanitize_openai_response(raw_content)
             
-            # Ensure tags and categories are lists
-            if not isinstance(blog_data.get('tags'), list):
-                blog_data['tags'] = []
-            if not isinstance(blog_data.get('categories'), list):
-                blog_data['categories'] = []
+            # Count words in the generated content
+            word_count = count_words_in_html(post_content)
+            logger.info(f"📊 Generated content word count: {word_count} (target: {min_words}-{max_words})")
             
-            logger.info(f"✅ Successfully generated blog post: {blog_data.get('post_title', 'Untitled')}")
+            # Check if content is too short and retry once
+            if word_count < min_words * 0.8:  # If less than 80% of minimum
+                logger.warning(f"⚠️ Content too short ({word_count} words), retrying with reinforced instructions")
+                
+                retry_prompt = f"""The previous response was too short ({word_count} words). Please rewrite the blog post to be between {min_words} and {max_words} words by:
+                - Adding more detailed examples
+                - Expanding each section with practical insights
+                - Including more background information about the donor
+                - Providing step-by-step application guidance
+                - Adding specific examples of fundable projects
+
+{prompt}
+
+CRITICAL: The response MUST be at least {min_words} words. Expand with relevant, valuable content."""
+                
+                retry_response = openai.ChatCompletion.create(
+                    model="gpt-4",
+                    messages=[
+                        {
+                            "role": "system", 
+                            "content": f"You are an expert content writer. The user needs a comprehensive {min_words}-{max_words} word blog post. Your previous response was too short. Please write a much longer, more detailed version."
+                        },
+                        {
+                            "role": "user",
+                            "content": retry_prompt
+                        }
+                    ],
+                    max_tokens=max_tokens,
+                    temperature=0.7
+                )
+                
+                try:
+                    if hasattr(retry_response, 'choices') and retry_response.choices:
+                        retry_content = retry_response.choices[0].message.content.strip()
+                        post_content = sanitize_openai_response(retry_content)
+                        word_count = count_words_in_html(post_content)
+                        logger.info(f"🔄 Retry generated {word_count} words (target: {min_words}-{max_words})")
+                    else:
+                        logger.warning("⚠️ Retry failed, using original content")
+                except Exception as e:
+                    logger.warning(f"⚠️ Retry failed: {e}, using original content")
+            
+            # Check SEO keyword coverage
+            seo_check = check_seo_keywords_coverage(post_content, seo_keywords or "")
+            logger.info(f"🔍 SEO keyword coverage: {seo_check['coverage_percentage']:.1f}%")
+            
+            if seo_check['missing_keywords']:
+                logger.warning(f"⚠️ Missing SEO keywords: {seo_check['missing_keywords']}")
+            
+            # Generate title and meta from content
+            soup = BeautifulSoup(post_content, 'html.parser')
+            
+            # Extract title from first h1 or h2
+            title_element = soup.find(['h1', 'h2'])
+            post_title = title_element.get_text().strip() if title_element else funding_data.get('title', 'Funding Opportunity')
+            
+            # Generate meta title (shorter version)
+            meta_title = post_title[:57] + "..." if len(post_title) > 60 else post_title
+            
+            # Generate meta description from first paragraph
+            first_p = soup.find('p')
+            meta_description = ""
+            if first_p:
+                meta_text = first_p.get_text().strip()
+                meta_description = meta_text[:157] + "..." if len(meta_text) > 160 else meta_text
+            
+            # Generate tags and categories
+            tags = self.extract_suggested_tags(funding_data, seo_keywords)
+            categories = self.extract_suggested_categories(funding_data)
+            
+            # Prepare response with validation metadata
+            blog_data = {
+                'post_title': post_title,
+                'post_content': post_content,
+                'meta_title': meta_title,
+                'meta_description': meta_description,
+                'tags': tags,
+                'categories': categories,
+                'word_count': word_count,
+                'target_range': f"{min_words}-{max_words}",
+                'seo_coverage': seo_check['coverage_percentage'],
+                'missing_keywords': seo_check['missing_keywords'],
+                'meets_word_count': word_count >= min_words * 0.8
+            }
+            
+            logger.info(f"✅ Successfully generated blog post: {post_title[:50]}... ({word_count} words)")
             return blog_data
             
+        except HTTPException:
+            # Re-raise HTTP exceptions (already have proper user-friendly messages)
+            raise
         except Exception as e:
-            logger.error(f"Failed to generate blog post: {e}")
+            logger.error(f"🔴 Unexpected error in blog generation: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to generate blog post: {str(e)}"
@@ -320,12 +497,12 @@ async def generate_post(
         # Initialize blog generator
         generator = BlogPostGenerator()
         
-        # Generate blog post using OpenAI
+        # Generate blog post using enhanced OpenAI method
         blog_data = generator.generate_blog_post(
             funding_data=funding_data,
             seo_keywords=request.seo_keywords,
-            tone=request.tone,
-            length=request.length,
+            tone=request.tone or "professional",
+            length=request.length or "medium",
             extra_instructions=request.extra_instructions
         )
         
@@ -339,9 +516,32 @@ async def generate_post(
         if not blog_data.get('categories'):
             blog_data['categories'] = generator.extract_suggested_categories(funding_data)
         
+        # Create enhanced success message with validation info
+        word_count = blog_data.get('word_count', 0)
+        target_range = blog_data.get('target_range', 'unknown')
+        seo_coverage = blog_data.get('seo_coverage', 0)
+        meets_word_count = blog_data.get('meets_word_count', False)
+        missing_keywords = blog_data.get('missing_keywords', [])
+        
+        # Build success message with quality indicators
+        quality_indicators = []
+        if meets_word_count:
+            quality_indicators.append(f"✅ Word count: {word_count} (target: {target_range})")
+        else:
+            quality_indicators.append(f"⚠️ Word count: {word_count} (target: {target_range}) - shorter than expected")
+        
+        if seo_coverage >= 80:
+            quality_indicators.append(f"✅ SEO coverage: {seo_coverage:.0f}%")
+        else:
+            quality_indicators.append(f"⚠️ SEO coverage: {seo_coverage:.0f}%")
+            if missing_keywords:
+                quality_indicators.append(f"Missing keywords: {', '.join(missing_keywords[:3])}")
+        
+        success_message = f"Successfully generated blog post for '{funding_data.get('title', 'Unknown Opportunity')}'. " + " | ".join(quality_indicators)
+        
         return GeneratePostResponse(
             success=True,
-            message=f"Successfully generated blog post for '{funding_data.get('title', 'Unknown Opportunity')}'",
+            message=success_message,
             post_title=blog_data.get('post_title'),
             post_content=blog_data.get('post_content'),
             tags=blog_data.get('tags', []),
@@ -350,7 +550,7 @@ async def generate_post(
             meta_description=blog_data.get('meta_description'),
             opportunity_url=opportunity_url,
             record_id=request.record_id,
-            prompt_version=blog_data.get('prompt_version', generator.CURRENT_PROMPT_VERSION)
+            prompt_version=generator.CURRENT_PROMPT_VERSION
         )
         
     except HTTPException:
