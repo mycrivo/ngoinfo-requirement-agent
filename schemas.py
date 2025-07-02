@@ -34,6 +34,12 @@ class ParseRequirementResponse(BaseModel):
     message: str
     data: Optional[FundingOpportunityResponse] = None
     extracted_data: Optional[FundingData] = None
+    # Enhanced fields for re-parsing workflow
+    already_exists: Optional[bool] = False
+    existing_entry: Optional[FundingOpportunityResponse] = None
+    new_entry: Optional[FundingOpportunityResponse] = None
+    existing_extracted_data: Optional[FundingData] = None
+    new_extracted_data: Optional[FundingData] = None
 
 class GenerateBlogRequest(BaseModel):
     opportunity_id: int

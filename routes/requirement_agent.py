@@ -174,12 +174,12 @@ async def parse_requirement(
             FundingOpportunity.source_url == url_str
         ).first()
         
-        # If existing record found and force_refresh is False, return cached data
+        # If existing record found and force_refresh is False, return existing data with already_exists flag
         if existing_opportunity and not force_refresh:
             logger.info(f"📋 Found existing record for URL: {url_str} (ID: {existing_opportunity.id}) - returning cached data")
             
             # Convert stored JSON data to FundingData for response
-            extracted_data = None
+            existing_extracted_data = None
             if existing_opportunity.json_data:
                 try:
                     # Create FundingData from stored JSON (backward compatibility)
@@ -206,20 +206,58 @@ async def parse_requirement(
                     # Enrich with missing information from json_data
                     enriched_data = enrich_extracted_data(base_extracted_data, json_data)
                     
-                    extracted_data = FundingData(**enriched_data)
+                    existing_extracted_data = FundingData(**enriched_data)
                 except Exception as e:
                     logger.warning(f"⚠️ Could not convert stored JSON to FundingData: {e}")
             
             return ParseRequirementResponse(
                 success=True,
-                message="URL already processed. Returning existing data from database.",
-                data=FundingOpportunityResponse.from_orm(existing_opportunity),
-                extracted_data=extracted_data
+                message="This funding opportunity already exists in the database. You can re-parse it to update the data.",
+                already_exists=True,
+                existing_entry=FundingOpportunityResponse.from_orm(existing_opportunity),
+                existing_extracted_data=existing_extracted_data,
+                data=FundingOpportunityResponse.from_orm(existing_opportunity),  # For backward compatibility
+                extracted_data=existing_extracted_data  # For backward compatibility
             )
         
-        # If force_refresh=True and record exists, log that we're updating
+        # Store existing data for comparison if force_refresh=True
+        existing_entry_for_comparison = None
+        existing_extracted_for_comparison = None
+        
         if existing_opportunity and force_refresh:
             logger.info(f"🔄 Force refresh requested for URL: {url_str} (ID: {existing_opportunity.id}) - re-parsing and updating")
+            
+            # Store existing data for comparison
+            existing_entry_for_comparison = FundingOpportunityResponse.from_orm(existing_opportunity)
+            
+            # Convert existing JSON data to FundingData for comparison
+            if existing_opportunity.json_data:
+                try:
+                    json_data = existing_opportunity.json_data
+                    
+                    # Convert eligibility list to string if needed
+                    eligibility_value = json_data.get('eligibility')
+                    if isinstance(eligibility_value, list):
+                        eligibility_str = ", ".join(str(item) for item in eligibility_value if item)
+                    else:
+                        eligibility_str = eligibility_value if eligibility_value is not None else None
+                    
+                    # Create base extracted_data for existing
+                    base_extracted_data = {
+                        'title': json_data.get('title'),
+                        'description': json_data.get('summary') or json_data.get('description'),
+                        'amount': json_data.get('amount'),
+                        'deadline': json_data.get('deadline'),
+                        'eligibility': eligibility_str,
+                        'requirements': json_data.get('how_to_apply') or json_data.get('requirements'),
+                        'contact_info': json_data.get('contact_info')
+                    }
+                    
+                    # Enrich with missing information from json_data
+                    enriched_data = enrich_extracted_data(base_extracted_data, json_data)
+                    existing_extracted_for_comparison = FundingData(**enriched_data)
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not convert existing JSON to FundingData for comparison: {e}")
         
         # Parse new URL using enhanced parser
         logger.info(f"🚀 Parsing new URL with enhanced gold-standard extraction: {url_str}")
@@ -300,12 +338,29 @@ async def parse_requirement(
         if extraction_warning:
             message += f" | Warning: {extraction_warning}"
         
-        return ParseRequirementResponse(
-            success=True,
-            message=message,
-            data=FundingOpportunityResponse.from_orm(funding_opportunity),
-            extracted_data=extracted_data
-        )
+        # Prepare response with comparison data for force_refresh cases
+        if existing_opportunity and force_refresh:
+            # Force refresh case - provide comparison data
+            return ParseRequirementResponse(
+                success=True,
+                message=message,
+                already_exists=False,  # False because we successfully re-parsed
+                existing_entry=existing_entry_for_comparison,
+                existing_extracted_data=existing_extracted_for_comparison,
+                new_entry=FundingOpportunityResponse.from_orm(funding_opportunity),
+                new_extracted_data=extracted_data,
+                data=FundingOpportunityResponse.from_orm(funding_opportunity),  # For backward compatibility
+                extracted_data=extracted_data  # For backward compatibility
+            )
+        else:
+            # New URL case - normal response
+            return ParseRequirementResponse(
+                success=True,
+                message=message,
+                already_exists=False,
+                data=FundingOpportunityResponse.from_orm(funding_opportunity),
+                extracted_data=extracted_data
+            )
         
     except Exception as e:
         logger.error(f"🔴 Error processing funding opportunity for {request.url}: {str(e)}")

@@ -652,6 +652,125 @@
             opacity: 0.6;
             cursor: not-allowed;
         }
+        
+        /* URL Already Exists Warning Styles */
+        .warning-card {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-left: 5px solid #ffc107;
+        }
+        
+        .warning-card h3 {
+            color: #856404;
+            margin-top: 0;
+        }
+        
+        .existing-info {
+            margin: 1rem 0;
+        }
+        
+        .existing-details {
+            background: #ffffff;
+            padding: 1rem;
+            border-radius: 6px;
+            border: 1px solid #dee2e6;
+            margin-top: 0.5rem;
+        }
+        
+        .existing-details p {
+            margin: 0.5rem 0;
+            font-size: 14px;
+        }
+        
+        .reparse-actions {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
+            flex-wrap: wrap;
+        }
+        
+        /* Comparison UI Styles */
+        .comparison-help {
+            color: #666;
+            font-style: italic;
+            margin-bottom: 1.5rem;
+        }
+        
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .comparison-column h4 {
+            color: #495057;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid #dee2e6;
+        }
+        
+        .data-preview {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 1rem;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .data-preview .field-item {
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #e9ecef;
+        }
+        
+        .data-preview .field-item:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+        
+        .data-preview .field-label {
+            font-weight: bold;
+            color: #495057;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.25rem;
+        }
+        
+        .data-preview .field-value {
+            color: #333;
+            word-wrap: break-word;
+        }
+        
+        .data-preview .field-changed {
+            background: #fff3cd;
+            padding: 0.25rem;
+            border-radius: 3px;
+            border-left: 3px solid #ffc107;
+        }
+        
+        .comparison-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        /* Loading states for re-parse */
+        #reparse-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        /* Responsive design for comparison */
+        @media (max-width: 768px) {
+            .comparison-grid {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+            }
+        }
     </style>
 </head>
 <body>
@@ -700,6 +819,54 @@
                         <span id="parse-btn-text">🔍 Parse</span>
                         <span id="parse-loading" class="hidden">⏳ Parsing...</span>
                     </button>
+                </div>
+            </div>
+
+            <!-- URL Already Exists Warning (hidden initially) -->
+            <div id="url-exists-warning" class="card warning-card hidden">
+                <h3>⚠️ URL Already Exists</h3>
+                <div id="existing-info" class="existing-info">
+                    <p><strong>This funding opportunity already exists in the system.</strong></p>
+                    <div class="existing-details">
+                        <p><strong>Title:</strong> <span id="existing-title"></span></p>
+                        <p><strong>Donor:</strong> <span id="existing-donor"></span></p>
+                        <p><strong>Added:</strong> <span id="existing-date"></span></p>
+                        <p><strong>Status:</strong> <span id="existing-status"></span></p>
+                    </div>
+                </div>
+                <div class="reparse-actions">
+                    <button type="button" id="reparse-btn" class="btn btn-secondary" onclick="reparseURL()">
+                        <span id="reparse-btn-text">🔄 Re-Parse Anyway</span>
+                        <span id="reparse-loading" class="hidden">⏳ Re-parsing...</span>
+                    </button>
+                    <button type="button" class="btn btn-primary" onclick="showExistingRecord()">📋 Use Existing Record</button>
+                </div>
+            </div>
+
+            <!-- Side-by-Side Comparison (hidden initially) -->
+            <div id="comparison-section" class="card hidden">
+                <h3>📊 Data Comparison: Existing vs New</h3>
+                <p class="comparison-help">Review the changes and choose which version to keep:</p>
+                
+                <div class="comparison-grid">
+                    <div class="comparison-column">
+                        <h4>🗂️ Existing Data</h4>
+                        <div id="existing-data-preview" class="data-preview">
+                            <!-- Existing data will be populated here -->
+                        </div>
+                    </div>
+                    <div class="comparison-column">
+                        <h4>🆕 Newly Parsed Data</h4>
+                        <div id="new-data-preview" class="data-preview">
+                            <!-- New data will be populated here -->
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="comparison-actions">
+                    <button type="button" class="btn btn-primary" onclick="useNewData()">✅ Overwrite with New Data</button>
+                    <button type="button" class="btn btn-secondary" onclick="keepExistingData()">🔙 Keep Existing Data</button>
+                    <button type="button" class="btn btn-danger" onclick="discardComparison()">❌ Cancel</button>
                 </div>
             </div>
 
@@ -1142,14 +1309,20 @@
             });
         }
         
-        // Step 1: Parse URL functionality
-        async function parseURL() {
+        // Global variables for comparison functionality
+        let existingRecordData = null;
+        let newRecordData = null;
+        let isReparsing = false;
+
+        // Step 1: Parse URL functionality with duplicate handling
+        async function parseURL(forceReparse = false) {
             const urlInput = document.getElementById('funding-url');
             const parseBtn = document.getElementById('parse-btn');
             const parseBtnText = document.getElementById('parse-btn-text');
             const parseLoading = document.getElementById('parse-loading');
             const parsedSection = document.getElementById('parsed-data-section');
-            const parseMessage = document.getElementById('parse-message');
+            const urlExistsWarning = document.getElementById('url-exists-warning');
+            const comparisonSection = document.getElementById('comparison-section');
             
             const url = urlInput.value.trim();
             
@@ -1163,8 +1336,16 @@
             parseBtnText.classList.add('hidden');
             parseLoading.classList.remove('hidden');
             
+            // Hide existing sections
+            urlExistsWarning.classList.add('hidden');
+            comparisonSection.classList.add('hidden');
+            parsedSection.classList.add('hidden');
+            
             try {
-                const response = await fetch('/api/requirement/parse', {
+                // Build URL with force parameter if needed
+                const apiUrl = forceReparse ? `/api/requirement/parse?force_refresh=true` : '/api/requirement/parse';
+                
+                const response = await fetch(apiUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1175,22 +1356,16 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    // Store original data for feedback comparison
-                    originalParsedData = result.data.json_data || {};
-                    currentRecordId = result.data.id;
-                    
-                    // Populate form with parsed data
-                    populateForm(originalParsedData, url);
-                    
-                    // Show success message
-                    showMessage(result.message, 'success');
-                    
-                    // Show the form section
-                    parsedSection.classList.remove('hidden');
-                    
-                    // Scroll to form
-                    parsedSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    
+                    if (result.already_exists && !forceReparse) {
+                        // URL already exists - show warning
+                        showURLExistsWarning(result);
+                    } else if (result.existing_entry && result.new_entry && forceReparse) {
+                        // Force re-parse completed - show comparison
+                        showComparison(result);
+                    } else {
+                        // New URL - proceed normally
+                        handleNewURL(result);
+                    }
                 } else {
                     showMessage(`Failed to parse URL: ${result.detail || 'Unknown error'}`, 'error');
                 }
@@ -1204,6 +1379,204 @@
                 parseBtnText.classList.remove('hidden');
                 parseLoading.classList.add('hidden');
             }
+        }
+        
+        // Show URL already exists warning
+        function showURLExistsWarning(result) {
+            const urlExistsWarning = document.getElementById('url-exists-warning');
+            const existingData = result.existing_entry.json_data || {};
+            
+            document.getElementById('existing-title').textContent = existingData.title || 'Unknown';
+            document.getElementById('existing-donor').textContent = existingData.donor || 'Unknown';
+            document.getElementById('existing-date').textContent = new Date(result.existing_entry.created_at).toLocaleDateString();
+            document.getElementById('existing-status').textContent = result.existing_entry.status || 'Unknown';
+            
+            urlExistsWarning.classList.remove('hidden');
+            urlExistsWarning.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            
+            // Store existing data for potential use
+            existingRecordData = result;
+        }
+        
+        // Handle new URL parsing
+        function handleNewURL(result) {
+            // Store original data for feedback comparison
+            originalParsedData = result.data.json_data || {};
+            currentRecordId = result.data.id;
+            
+            // Populate form with parsed data
+            populateForm(originalParsedData, document.getElementById('funding-url').value);
+            
+            // Show success message
+            showMessage(result.message, 'success');
+            
+            // Show the form section
+            const parsedSection = document.getElementById('parsed-data-section');
+            parsedSection.classList.remove('hidden');
+            parsedSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        
+        // Re-parse URL with force flag
+        async function reparseURL() {
+            const reparseBtn = document.getElementById('reparse-btn');
+            const reparseBtnText = document.getElementById('reparse-btn-text');
+            const reparseLoading = document.getElementById('reparse-loading');
+            
+            // Show loading state
+            reparseBtn.disabled = true;
+            reparseBtnText.classList.add('hidden');
+            reparseLoading.classList.remove('hidden');
+            
+            try {
+                await parseURL(true); // Force re-parse
+            } finally {
+                // Reset button state
+                reparseBtn.disabled = false;
+                reparseBtnText.classList.remove('hidden');
+                reparseLoading.classList.add('hidden');
+            }
+        }
+        
+        // Show existing record (skip re-parsing)
+        function showExistingRecord() {
+            if (existingRecordData) {
+                handleNewURL(existingRecordData);
+            }
+        }
+        
+        // Show side-by-side comparison
+        function showComparison(result) {
+            const comparisonSection = document.getElementById('comparison-section');
+            const existingPreview = document.getElementById('existing-data-preview');
+            const newPreview = document.getElementById('new-data-preview');
+            
+            // Store data for later use
+            existingRecordData = result;
+            newRecordData = result;
+            
+            // Populate existing data preview
+            const existingData = result.existing_extracted_data || {};
+            existingPreview.innerHTML = createDataPreview(existingData, 'existing');
+            
+            // Populate new data preview
+            const newData = result.new_extracted_data || {};
+            newPreview.innerHTML = createDataPreview(newData, 'new', existingData);
+            
+            // Show comparison section
+            comparisonSection.classList.remove('hidden');
+            comparisonSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        
+        // Create data preview HTML
+        function createDataPreview(data, type, comparisonData = null) {
+            const fields = [
+                { key: 'title', label: 'Title' },
+                { key: 'donor', label: 'Donor' },
+                { key: 'amount', label: 'Amount' },
+                { key: 'deadline', label: 'Deadline' },
+                { key: 'description', label: 'Description' },
+                { key: 'eligibility', label: 'Eligibility' },
+                { key: 'themes', label: 'Themes' },
+                { key: 'location', label: 'Location' }
+            ];
+            
+            let html = '';
+            
+            fields.forEach(field => {
+                const value = data[field.key] || 'Not specified';
+                const isChanged = comparisonData && comparisonData[field.key] !== data[field.key];
+                const fieldClass = isChanged ? 'field-changed' : '';
+                
+                html += `
+                    <div class="field-item ${fieldClass}">
+                        <div class="field-label">${field.label}</div>
+                        <div class="field-value">${value}</div>
+                    </div>
+                `;
+            });
+            
+            return html;
+        }
+        
+        // Use new data (overwrite existing)
+        async function useNewData() {
+            if (newRecordData && newRecordData.new_entry) {
+                try {
+                    // Update the database with new data
+                    const response = await fetch(`/api/requirement/opportunities/${newRecordData.new_entry.id}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            json_data: newRecordData.new_entry.json_data,
+                            status: 'approved'  // Set to approved for workflow
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        showMessage('✅ Successfully updated with new data', 'success');
+                        
+                        // Proceed with the new data in the workflow
+                        originalParsedData = newRecordData.new_entry.json_data || {};
+                        currentRecordId = newRecordData.new_entry.id;
+                        
+                        // Populate form and show parsed section
+                        populateForm(originalParsedData, document.getElementById('funding-url').value);
+                        
+                        // Hide comparison, show parsed data section
+                        document.getElementById('comparison-section').classList.add('hidden');
+                        const parsedSection = document.getElementById('parsed-data-section');
+                        parsedSection.classList.remove('hidden');
+                        parsedSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        
+                    } else {
+                        showMessage('❌ Failed to update record', 'error');
+                    }
+                } catch (error) {
+                    console.error('Update error:', error);
+                    showMessage('❌ Error updating record: ' + error.message, 'error');
+                }
+            }
+        }
+        
+        // Keep existing data (discard new)
+        function keepExistingData() {
+            if (existingRecordData && existingRecordData.existing_entry) {
+                showMessage('📋 Keeping existing data', 'success');
+                
+                // Use existing data in workflow
+                originalParsedData = existingRecordData.existing_entry.json_data || {};
+                currentRecordId = existingRecordData.existing_entry.id;
+                
+                // Populate form and show parsed section
+                populateForm(originalParsedData, document.getElementById('funding-url').value);
+                
+                // Hide comparison, show parsed data section
+                document.getElementById('comparison-section').classList.add('hidden');
+                const parsedSection = document.getElementById('parsed-data-section');
+                parsedSection.classList.remove('hidden');
+                parsedSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+        
+        // Discard comparison and start over
+        function discardComparison() {
+            // Hide all sections
+            document.getElementById('comparison-section').classList.add('hidden');
+            document.getElementById('url-exists-warning').classList.add('hidden');
+            document.getElementById('parsed-data-section').classList.add('hidden');
+            
+            // Clear URL input
+            document.getElementById('funding-url').value = '';
+            
+            // Reset global variables
+            existingRecordData = null;
+            newRecordData = null;
+            originalParsedData = {};
+            currentRecordId = null;
+            
+            showMessage('❌ Parsing cancelled', 'info');
         }
         
         // Populate form with parsed data
