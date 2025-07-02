@@ -60,19 +60,28 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers and system dependencies
-RUN playwright install --with-deps chromium
-
-# Copy application code
-COPY . .
-
 # Create non-root user for security
 RUN groupadd --gid 1000 appuser \
-    && useradd --uid 1000 --gid appuser --shell /bin/bash --create-home appuser \
-    && chown -R appuser:appuser /app
+    && useradd --uid 1000 --gid appuser --shell /bin/bash --create-home appuser
 
-# Switch to non-root user
+# Create Playwright cache directory with proper permissions
+RUN mkdir -p /home/appuser/.cache/ms-playwright \
+    && chown -R appuser:appuser /home/appuser/.cache
+
+# Switch to non-root user before installing Playwright
 USER appuser
+
+# Install Playwright browsers and system dependencies as appuser
+# This ensures browsers are installed in the user's cache directory
+RUN playwright install --with-deps chromium
+
+# Validate that Chromium was installed successfully
+RUN ls -la /home/appuser/.cache/ms-playwright/ \
+    && find /home/appuser/.cache/ms-playwright -name "chromium-*" -type d | head -1 \
+    && echo "✅ Chromium browser installed successfully"
+
+# Copy application code (this will be a separate layer for better caching)
+COPY --chown=appuser:appuser . .
 
 # Expose port
 EXPOSE 8000
