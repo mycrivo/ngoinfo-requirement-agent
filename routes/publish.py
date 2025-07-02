@@ -5,6 +5,9 @@ import logging
 from typing import Dict, Any, List, Optional
 import base64
 from requests.auth import HTTPBasicAuth
+import json
+import traceback
+from datetime import datetime
 
 from schemas import PublishToWordPressRequest, PublishToWordPressResponse
 
@@ -23,6 +26,10 @@ class WordPressPublisher:
         self.app_password = os.getenv('WP_APPLICATION_PASSWORD')
         
         if not all([self.base_url, self.username, self.app_password]):
+            logger.error("🔴 WordPress credentials not configured properly:")
+            logger.error(f"   WP_API_URL: {'✅ Set' if self.base_url else '❌ Missing'}")
+            logger.error(f"   WP_USERNAME: {'✅ Set' if self.username else '❌ Missing'}")
+            logger.error(f"   WP_APPLICATION_PASSWORD: {'✅ Set' if self.app_password else '❌ Missing'}")
             raise ValueError("WordPress credentials not properly configured. Please set WP_API_URL, WP_USERNAME, and WP_APPLICATION_PASSWORD environment variables.")
         
         # Remove trailing slash from base URL
@@ -34,12 +41,69 @@ class WordPressPublisher:
         # Default headers
         self.headers = {
             'Content-Type': 'application/json',
-            'Accept': 'application/json'
+            'Accept': 'application/json',
+            'User-Agent': 'ReqAgent/1.0 WordPress Publisher'
         }
+        
+        logger.info(f"📡 WordPress Publisher initialized - API URL: {self.base_url}")
+    
+    def validate_content(self, content: str) -> Dict[str, Any]:
+        """Validate content before sending to WordPress"""
+        validation_result = {
+            'valid': True,
+            'warnings': [],
+            'errors': []
+        }
+        
+        # Check content length
+        content_length = len(content)
+        if content_length > 1000000:  # 1MB limit
+            validation_result['errors'].append(f"Content too large: {content_length} characters (max: 1,000,000)")
+            validation_result['valid'] = False
+        elif content_length > 500000:  # 500KB warning
+            validation_result['warnings'].append(f"Large content: {content_length} characters")
+        
+        # Check for problematic characters
+        problematic_chars = ['\x00', '\x01', '\x02', '\x03', '\x04', '\x05', '\x06', '\x07', '\x08', '\x0b', '\x0c', '\x0e', '\x0f']
+        for char in problematic_chars:
+            if char in content:
+                validation_result['errors'].append(f"Contains invalid control character: {repr(char)}")
+                validation_result['valid'] = False
+        
+        # Log validation results
+        if validation_result['warnings']:
+            logger.warning(f"⚠️ Content validation warnings: {'; '.join(validation_result['warnings'])}")
+        if validation_result['errors']:
+            logger.error(f"🔴 Content validation errors: {'; '.join(validation_result['errors'])}")
+        
+        return validation_result
     
     def _make_request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
-        """Make authenticated request to WordPress REST API"""
+        """Make authenticated request to WordPress REST API with comprehensive logging"""
         url = f"{self.base_url}/wp-json/wp/v2/{endpoint}"
+        request_id = datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:20]
+        
+        # Log request details
+        logger.info(f"🔄 [{request_id}] WordPress API Request:")
+        logger.info(f"   Method: {method}")
+        logger.info(f"   URL: {url}")
+        logger.info(f"   Headers: {dict(self.headers)}")
+        
+        # Log request payload if present
+        if 'json' in kwargs:
+            payload = kwargs['json']
+            logger.info(f"   Payload keys: {list(payload.keys()) if isinstance(payload, dict) else 'Not a dict'}")
+            if isinstance(payload, dict):
+                # Log non-sensitive payload data
+                safe_payload = {k: (v[:100] + '...' if isinstance(v, str) and len(v) > 100 else v) 
+                              for k, v in payload.items() if k not in ['content']}
+                logger.info(f"   Payload (truncated): {json.dumps(safe_payload, indent=2, default=str)}")
+                if 'content' in payload:
+                    content_length = len(payload['content']) if payload['content'] else 0
+                    logger.info(f"   Content length: {content_length} characters")
+        
+        if 'params' in kwargs:
+            logger.info(f"   Query params: {kwargs['params']}")
         
         try:
             response = requests.request(
@@ -47,91 +111,200 @@ class WordPressPublisher:
                 url=url,
                 auth=self.auth,
                 headers=self.headers,
+                timeout=30,  # Add 30 second timeout
                 **kwargs
             )
-            response.raise_for_status()
+            
+            # Log response details
+            logger.info(f"📥 [{request_id}] WordPress API Response:")
+            logger.info(f"   Status: {response.status_code} {response.reason}")
+            logger.info(f"   Response headers: {dict(response.headers)}")
+            
+            # Log response body
+            try:
+                response_json = response.json()
+                logger.info(f"   Response body: {json.dumps(response_json, indent=2, default=str)}")
+            except (ValueError, json.JSONDecodeError):
+                response_text = response.text[:1000]
+                logger.info(f"   Response body (text): {response_text}")
+            
+            # Check for HTTP errors
+            if not response.ok:
+                self._handle_http_error(response, request_id)
+            
             return response
+            
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"🔴 [{request_id}] Connection failed to WordPress API: {e}")
+            logger.error(f"   URL: {url}")
+            logger.error(f"   Check if WordPress site is accessible and API URL is correct")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Cannot connect to WordPress API. Please check if the site is accessible and the API URL is correct. (Error: {str(e)})"
+            )
+        except requests.exceptions.Timeout as e:
+            logger.error(f"🔴 [{request_id}] WordPress API request timed out: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="WordPress API request timed out. The site may be slow or experiencing issues."
+            )
         except requests.exceptions.RequestException as e:
-            logger.error(f"WordPress API request failed: {e}")
+            logger.error(f"🔴 [{request_id}] WordPress API request failed: {e}")
+            logger.error(f"   Full exception: {traceback.format_exc()}")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=f"Failed to communicate with WordPress: {str(e)}"
             )
     
-    def get_or_create_category(self, category_name: str) -> int:
-        """Get category ID by name, create if it doesn't exist"""
+    def _handle_http_error(self, response: requests.Response, request_id: str):
+        """Handle specific HTTP error codes from WordPress API"""
+        status_code = response.status_code
+        
         try:
-            # Search for existing category
-            response = self._make_request('GET', 'categories', params={'search': category_name})
-            categories = response.json()
-            
-            # Check for exact match
-            for category in categories:
-                if category['name'].lower() == category_name.lower():
-                    logger.info(f"Found existing category: {category_name} (ID: {category['id']})")
-                    return category['id']
-            
-            # Create new category if not found
-            logger.info(f"Creating new category: {category_name}")
-            response = self._make_request('POST', 'categories', json={'name': category_name})
-            new_category = response.json()
-            return new_category['id']
-            
-        except Exception as e:
-            logger.error(f"Failed to get/create category '{category_name}': {e}")
+            error_data = response.json()
+            error_code = error_data.get('code', 'unknown_error')
+            error_message = error_data.get('message', 'Unknown error')
+            error_details = error_data.get('data', {})
+        except (ValueError, json.JSONDecodeError):
+            error_code = 'parse_error'
+            error_message = 'Could not parse error response'
+            error_details = {'raw_response': response.text[:500]}
+        
+        logger.error(f"🔴 [{request_id}] WordPress API Error {status_code}:")
+        logger.error(f"   Error code: {error_code}")
+        logger.error(f"   Error message: {error_message}")
+        logger.error(f"   Error details: {json.dumps(error_details, indent=2, default=str)}")
+        
+        # Handle specific error cases
+        if status_code == 401:
+            logger.error("🔐 Authentication failed - check WordPress credentials")
+            logger.error("   - Verify WP_USERNAME and WP_APPLICATION_PASSWORD are correct")
+            logger.error("   - Check if Application Password is enabled in WordPress")
+            logger.error("   - Ensure user has proper permissions")
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to handle category '{category_name}'"
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"WordPress authentication failed. Please check credentials. (WordPress error: {error_message})"
+            )
+        elif status_code == 403:
+            logger.error("🚫 Permission denied - user lacks required permissions")
+            logger.error("   - Check if user can create/edit posts")
+            logger.error("   - Verify user role and capabilities")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permission denied. User lacks required WordPress permissions. (WordPress error: {error_message})"
+            )
+        elif status_code == 404:
+            logger.error("🔍 WordPress API endpoint not found")
+            logger.error("   - Check if WordPress REST API is enabled")
+            logger.error("   - Verify API URL is correct")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"WordPress API endpoint not found. Check if REST API is enabled. (WordPress error: {error_message})"
+            )
+        elif status_code == 500:
+            logger.error("💥 WordPress server error")
+            logger.error("   - Check WordPress site health")
+            logger.error("   - Review WordPress error logs")
+            logger.error("   - Check for plugin conflicts")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"WordPress server error. Check site health and error logs. (WordPress error: {error_message})"
+            )
+        else:
+            logger.error(f"❓ Unexpected WordPress API error: {status_code}")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"WordPress API error {status_code}: {error_message}"
             )
     
-    def get_or_create_tag(self, tag_name: str) -> int:
-        """Get tag ID by name, create if it doesn't exist"""
+    def get_default_category_id(self) -> Optional[int]:
+        """Get the default 'NGO Grants and Funds' category ID, return None if not found"""
+        default_category_slug = "ngo-grants-and-funds"
+        default_category_name = "NGO Grants and Funds"
+        
         try:
-            # Search for existing tag
-            response = self._make_request('GET', 'tags', params={'search': tag_name})
-            tags = response.json()
+            logger.info(f"🏷️ Looking for default category: {default_category_name} (slug: {default_category_slug})")
             
-            # Check for exact match
-            for tag in tags:
-                if tag['name'].lower() == tag_name.lower():
-                    logger.info(f"Found existing tag: {tag_name} (ID: {tag['id']})")
-                    return tag['id']
+            # Search for category by slug (more reliable than name)
+            response = self._make_request('GET', 'categories', params={'slug': default_category_slug})
+            categories = response.json()
             
-            # Create new tag if not found
-            logger.info(f"Creating new tag: {tag_name}")
-            response = self._make_request('POST', 'tags', json={'name': tag_name})
-            new_tag = response.json()
-            return new_tag['id']
+            if categories and len(categories) > 0:
+                category_id = categories[0]['id']
+                logger.info(f"✅ Found default category: {default_category_name} (ID: {category_id})")
+                return category_id
             
+            # Category not found by slug, try by name as fallback
+            logger.info(f"🔍 Category not found by slug, trying name search...")
+            response = self._make_request('GET', 'categories', params={'search': default_category_name})
+            categories = response.json()
+            
+            # Check for exact name match
+            for category in categories:
+                if category['name'].lower() == default_category_name.lower():
+                    category_id = category['id']
+                    logger.info(f"✅ Found default category by name: {default_category_name} (ID: {category_id})")
+                    return category_id
+            
+            # Category not found at all
+            logger.warning(f"⚠️ Default category '{default_category_name}' not found. Publishing without category.")
+            return None
+            
+        except HTTPException:
+            # Don't fail the entire post creation if category lookup fails
+            logger.warning(f"⚠️ Failed to lookup default category due to API error. Publishing without category.")
+            return None
         except Exception as e:
-            logger.error(f"Failed to get/create tag '{tag_name}': {e}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to handle tag '{tag_name}'"
-            )
+            logger.warning(f"⚠️ Failed to lookup default category '{default_category_name}': {e}")
+            logger.warning("   Publishing without category to avoid blocking post creation.")
+            return None
+    
+
     
     def create_post(self, post_data: PublishToWordPressRequest) -> Dict[str, Any]:
         """Create a WordPress post as draft with SEO metadata"""
+        post_creation_id = datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:20]
+        
         try:
-            # Get category IDs
-            category_ids = []
-            for category_name in post_data.categories:
-                if category_name.strip():
-                    category_ids.append(self.get_or_create_category(category_name.strip()))
+            logger.info(f"📝 [{post_creation_id}] Creating WordPress post: {post_data.title}")
             
-            # Get tag IDs  
+            # Validate post content
+            validation_result = self.validate_content(post_data.content)
+            if not validation_result['valid']:
+                logger.error(f"🔴 [{post_creation_id}] Content validation failed:")
+                for error in validation_result['errors']:
+                    logger.error(f"   - {error}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Content validation failed: {'; '.join(validation_result['errors'])}"
+                )
+            
+            # Validate required fields
+            if not post_data.title or not post_data.title.strip():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Post title is required and cannot be empty"
+                )
+            
+            if not post_data.content or not post_data.content.strip():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Post content is required and cannot be empty"
+                )
+            
+            # Get default category ID (NGO Grants and Funds)
+            logger.info(f"🏷️ [{post_creation_id}] Setting up default category")
+            default_category_id = self.get_default_category_id()
+            category_ids = [default_category_id] if default_category_id else []
+            
+            # Note: Tags are not processed - posts use default category only
             tag_ids = []
-            for tag_name in post_data.tags:
-                if tag_name.strip():
-                    tag_ids.append(self.get_or_create_tag(tag_name.strip()))
             
-            # Prepare post payload
+            # Prepare post payload (always draft status, default category only)
             wp_post_data = {
-                'title': post_data.title,
+                'title': post_data.title.strip(),
                 'content': post_data.content,
-                'status': 'draft',
-                'categories': category_ids,
-                'tags': tag_ids,
+                'status': 'draft',  # Always draft, never publish
                 'meta': {
                     # Custom field for opportunity URL
                     'opportunity_url': post_data.opportunity_url,
@@ -148,16 +321,47 @@ class WordPressPublisher:
                 }
             }
             
+            # Only include categories if we have a valid default category
+            if category_ids:
+                wp_post_data['categories'] = category_ids
+                logger.info(f"📂 [{post_creation_id}] Using default category (ID: {category_ids[0]})")
+            else:
+                logger.info(f"📂 [{post_creation_id}] Publishing without category (default category not available)")
+            
+            logger.info(f"📊 [{post_creation_id}] Post data summary:")
+            logger.info(f"   Title: {post_data.title}")
+            logger.info(f"   Content length: {len(post_data.content)} characters")
+            logger.info(f"   Status: draft (always)")
+            logger.info(f"   Default category: {'Applied' if category_ids else 'Not available'}")
+            logger.info(f"   Meta title: {post_data.meta_title}")
+            logger.info(f"   Meta description length: {len(post_data.meta_description) if post_data.meta_description else 0}")
+            
             # Create the post
-            logger.info(f"Creating WordPress post: {post_data.title}")
+            logger.info(f"🚀 [{post_creation_id}] Sending post creation request to WordPress...")
             response = self._make_request('POST', 'posts', json=wp_post_data)
             post_response = response.json()
             
-            logger.info(f"Successfully created WordPress post ID: {post_response.get('id')}")
+            post_id = post_response.get('id')
+            post_url = post_response.get('link')
+            
+            logger.info(f"✅ [{post_creation_id}] Successfully created WordPress post:")
+            logger.info(f"   Post ID: {post_id}")
+            logger.info(f"   Post URL: {post_url}")
+            logger.info(f"   Status: {post_response.get('status')}")
+            
             return post_response
             
+        except HTTPException:
+            # Re-raise HTTP exceptions as they already have proper error details
+            raise
         except Exception as e:
-            logger.error(f"Failed to create WordPress post: {e}")
+            logger.error(f"🔴 [{post_creation_id}] Failed to create WordPress post: {e}")
+            logger.error(f"   Full exception: {traceback.format_exc()}")
+            logger.error(f"   Post data summary:")
+            logger.error(f"     Title: {getattr(post_data, 'title', 'N/A')}")
+            logger.error(f"     Content length: {len(getattr(post_data, 'content', ''))}")
+            logger.error(f"     Status: draft (always)")
+            logger.error(f"     Default category attempted: {default_category_id is not None}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to create WordPress post: {str(e)}"
