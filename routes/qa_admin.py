@@ -168,15 +168,17 @@ async def qa_review_dashboard(
 
 @router.post("/qa-review/update")
 async def update_qa_review(
+    request: Request,
     id: int = Form(...),
     editable_text: str = Form(...),
     db: Session = Depends(get_db),
-    current_user: str = Depends(require_admin_auth)
+    _: bool = Depends(require_login)
 ):
     """
     Update QA review - Update editable_text and set status to reviewed
     """
     try:
+        current_user = get_current_admin(request)
         logger.info(f"🔄 Processing QA update for opportunity ID: {id} (User: {current_user})")
         
         # Fetch the funding opportunity record
@@ -222,14 +224,16 @@ async def update_qa_review(
 
 @router.post("/qa-review/update-with-feedback", response_model=FeedbackResponse)
 async def update_qa_review_with_feedback(
+    fastapi_request: Request,
     request: QAUpdateRequest,
     db: Session = Depends(get_db),
-    current_user: str = Depends(require_admin_auth)
+    _: bool = Depends(require_login)
 ):
     """
     Enhanced QA update that captures feedback on field changes
     """
     try:
+        current_user = get_current_admin(fastapi_request)
         logger.info(f"🔄 Processing enhanced QA update for record ID: {request.record_id} (User: {current_user})")
         
         # Fetch the funding opportunity record
@@ -254,7 +258,7 @@ async def update_qa_review_with_feedback(
                 record_id=request.record_id,
                 original_data=original_data,
                 edited_data=request.field_updates,
-                prompt_version=request.prompt_version
+                prompt_version=request.prompt_version or "v1.0"
             )
         
         # Update the JSON data with new field values
@@ -301,8 +305,9 @@ async def update_qa_review_with_feedback(
 
 @router.get("/feedback/stats")
 async def get_feedback_statistics(
+    request: Request,
     db: Session = Depends(get_db),
-    current_user: str = Depends(require_admin_auth)
+    _: bool = Depends(require_login)
 ):
     """
     Get feedback statistics for analysis
@@ -323,10 +328,11 @@ async def get_feedback_statistics(
 
 @router.get("/feedback/field/{field_name}")
 async def get_field_feedback(
+    request: Request,
     field_name: str,
     limit: int = 50,
     db: Session = Depends(get_db),
-    current_user: str = Depends(require_admin_auth)
+    _: bool = Depends(require_login)
 ):
     """
     Get feedback for a specific field to analyze editing patterns
@@ -355,12 +361,13 @@ async def get_field_feedback(
 async def admin_dashboard(
     request: Request,
     db: Session = Depends(get_db),
-    current_user: str = Depends(require_admin_auth)
+    _: bool = Depends(require_login)
 ):
     """
     Main Admin Dashboard - Overview of all admin functions
     """
     try:
+        current_user = get_current_admin(request)
         logger.info(f"📊 Loading admin dashboard for user: {current_user}")
         
         # Get statistics for dashboard
