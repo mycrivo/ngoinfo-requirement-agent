@@ -1008,6 +1008,14 @@
                             <span id="generate-blog-text">🤖 Generate Blog Post</span>
                             <span id="generate-blog-loading" class="hidden">⏳ Generating...</span>
                         </button>
+                        <button type="button" id="regenerate-blog-btn" class="btn btn-secondary hidden" onclick="regenerateBlogPost()">
+                            <span id="regenerate-blog-text">🔄 Regenerate Blog Post</span>
+                            <span id="regenerate-blog-loading" class="hidden">⏳ Regenerating...</span>
+                        </button>
+                    </div>
+                    <div id="existing-blog-notice" class="hidden" style="margin-top: 10px; padding: 10px; background: #e8f4f8; border-left: 4px solid #2196F3; border-radius: 4px;">
+                        <p><strong>📝 Existing Blog Post Found</strong></p>
+                        <p>A saved blog post already exists for this funding opportunity. Click "Generate Blog Post" to load it, or "Regenerate Blog Post" to create a new version.</p>
                     </div>
                 </div>
             </div>
@@ -1366,7 +1374,7 @@
                         showComparison(result);
                     } else {
                         // New URL - proceed normally
-                        handleNewURL(result);
+                        await handleNewURL(result);
                     }
                 } else {
                     showMessage(`Failed to parse URL: ${result.detail || 'Unknown error'}`, 'error');
@@ -1401,10 +1409,13 @@
         }
         
         // Handle new URL parsing
-        function handleNewURL(result) {
+        async function handleNewURL(result) {
             // Store original data for feedback comparison
             originalParsedData = result.data.json_data || {};
             currentRecordId = result.data.id;
+            
+            // Check for existing blog post
+            await checkExistingBlogPost(currentRecordId);
             
             // Populate form with parsed data
             populateForm(originalParsedData, document.getElementById('funding-url').value);
@@ -1440,9 +1451,9 @@
         }
         
         // Show existing record (skip re-parsing)
-        function showExistingRecord() {
+        async function showExistingRecord() {
             if (existingRecordData) {
-                handleNewURL(existingRecordData);
+                await handleNewURL(existingRecordData);
             }
         }
         
@@ -1523,6 +1534,9 @@
                         originalParsedData = newRecordData.new_entry.json_data || {};
                         currentRecordId = newRecordData.new_entry.id;
                         
+                        // Check for existing blog post
+                        await checkExistingBlogPost(currentRecordId);
+                        
                         // Populate form and show parsed section
                         populateForm(originalParsedData, document.getElementById('funding-url').value);
                         
@@ -1543,13 +1557,16 @@
         }
         
         // Keep existing data (discard new)
-        function keepExistingData() {
+        async function keepExistingData() {
             if (existingRecordData && existingRecordData.existing_entry) {
                 showMessage('📋 Keeping existing data', 'success');
                 
                 // Use existing data in workflow
                 originalParsedData = existingRecordData.existing_entry.json_data || {};
                 currentRecordId = existingRecordData.existing_entry.id;
+                
+                // Check for existing blog post
+                await checkExistingBlogPost(currentRecordId);
                 
                 // Populate form and show parsed section
                 populateForm(originalParsedData, document.getElementById('funding-url').value);
@@ -2054,6 +2071,138 @@
         
         // Step 2: Blog Post Generation functionality
         let originalBlogData = {};
+        let existingBlogPost = null;
+        
+        // Check for existing blog post when record is loaded
+        async function checkExistingBlogPost(recordId) {
+            try {
+                const response = await fetch(`/api/get-blog-post?record_id=${recordId}`);
+                const result = await response.json();
+                
+                if (result.success && result.exists) {
+                    existingBlogPost = result.blog_post;
+                    showExistingBlogPostNotice(true);
+                    updateBlogGenerationButtons(true);
+                    return true;
+                } else {
+                    existingBlogPost = null;
+                    showExistingBlogPostNotice(false);
+                    updateBlogGenerationButtons(false);
+                    return false;
+                }
+            } catch (error) {
+                console.error('Error checking existing blog post:', error);
+                existingBlogPost = null;
+                showExistingBlogPostNotice(false);
+                updateBlogGenerationButtons(false);
+                return false;
+            }
+        }
+        
+        // Show/hide existing blog post notice
+        function showExistingBlogPostNotice(show) {
+            const notice = document.getElementById('existing-blog-notice');
+            if (show) {
+                notice.classList.remove('hidden');
+            } else {
+                notice.classList.add('hidden');
+            }
+        }
+        
+        // Update blog generation buttons based on existing post status
+        function updateBlogGenerationButtons(hasExisting) {
+            const generateBtn = document.getElementById('generate-blog-btn');
+            const regenerateBtn = document.getElementById('regenerate-blog-btn');
+            const generateText = document.getElementById('generate-blog-text');
+            
+            if (hasExisting) {
+                generateText.textContent = '📝 Load Existing Blog Post';
+                regenerateBtn.classList.remove('hidden');
+            } else {
+                generateText.textContent = '🤖 Generate Blog Post';
+                regenerateBtn.classList.add('hidden');
+            }
+        }
+        
+        // Regenerate blog post (force new generation)
+        async function regenerateBlogPost() {
+            const regenerateBtn = document.getElementById('regenerate-blog-btn');
+            const regenerateText = document.getElementById('regenerate-blog-text');
+            const regenerateLoading = document.getElementById('regenerate-blog-loading');
+            const blogEditSection = document.getElementById('blog-edit-section');
+            const blogMessage = document.getElementById('blog-message');
+            
+            if (!currentRecordId) {
+                showBlogMessage('No record available. Please complete Step 1 first.', 'error');
+                return;
+            }
+            
+            // Show loading state
+            regenerateBtn.disabled = true;
+            regenerateText.classList.add('hidden');
+            regenerateLoading.classList.remove('hidden');
+            
+            try {
+                // Collect generation parameters
+                const requestData = {
+                    record_id: currentRecordId,
+                    seo_keywords: document.getElementById('seo-keywords').value.trim() || null,
+                    tone: document.getElementById('tone-select').value,
+                    length: document.getElementById('length-select').value,
+                    extra_instructions: document.getElementById('extra-instructions').value.trim() || null,
+                    force_regenerate: true
+                };
+                
+                const response = await fetch('/api/regenerate-blog-post', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestData)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Store original data for feedback comparison
+                    originalBlogData = {
+                        post_title: result.post_title,
+                        post_content: result.post_content,
+                        meta_title: result.meta_title,
+                        meta_description: result.meta_description,
+                        tags: result.tags,
+                        categories: result.categories
+                    };
+                    
+                    // Populate blog edit form
+                    populateBlogForm(result);
+                    
+                    // Show success message
+                    showBlogMessage(result.message, 'success');
+                    
+                    // Show the edit section
+                    blogEditSection.classList.remove('hidden');
+                    
+                    // Update existing post reference
+                    existingBlogPost = result;
+                    
+                    // Scroll to edit form
+                    blogEditSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    
+                } else {
+                    showBlogMessage(`Failed to regenerate blog post: ${result.detail || 'Unknown error'}`, 'error');
+                }
+                
+            } catch (error) {
+                console.error('Blog regeneration error:', error);
+                showBlogMessage(`Error regenerating blog post: ${error.message}`, 'error');
+            } finally {
+                // Reset button state
+                regenerateBtn.disabled = false;
+                regenerateText.classList.remove('hidden');
+                regenerateLoading.classList.add('hidden');
+            }
+        }
         
         async function generateBlogPost() {
             const generateBtn = document.getElementById('generate-blog-btn');
@@ -2106,11 +2255,22 @@
                     // Populate blog edit form
                     populateBlogForm(result);
                     
-                    // Show success message
-                    showBlogMessage(result.message, 'success');
+                    // Show success message with additional info
+                    let message = result.message;
+                    if (result.is_existing) {
+                        message += ' | ℹ️ This is a saved blog post from the database.';
+                    } else {
+                        message += ' | 💾 New blog post saved to database.';
+                    }
+                    showBlogMessage(message, 'success');
                     
                     // Show the edit section
                     blogEditSection.classList.remove('hidden');
+                    
+                    // Update existing post reference
+                    if (result.blog_post_id) {
+                        existingBlogPost = result;
+                    }
                     
                     // Scroll to edit form
                     blogEditSection.scrollIntoView({ behavior: 'smooth', block: 'start' });

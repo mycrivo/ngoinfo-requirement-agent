@@ -86,6 +86,52 @@ class GeneratePostResponse(BaseModel):
     opportunity_url: Optional[str] = None
     record_id: Optional[int] = None
     prompt_version: Optional[str] = None
+    # Enhanced fields for database persistence
+    blog_post_id: Optional[int] = None
+    is_existing: Optional[bool] = False
+    last_updated: Optional[datetime] = None
+    word_count: Optional[int] = None
+
+class SavedBlogPostResponse(BaseModel):
+    id: int
+    record_id: int
+    title: str
+    content: str
+    meta_title: Optional[str] = None
+    meta_description: Optional[str] = None
+    seo_keywords: Optional[str] = None
+    tags: Optional[list[str]] = None
+    categories: Optional[list[str]] = None
+    tone: Optional[str] = None
+    length: Optional[str] = None
+    extra_instructions: Optional[str] = None
+    prompt_version: Optional[str] = None
+    word_count: Optional[int] = None
+    is_published_to_wp: bool = False
+    wp_post_id: Optional[int] = None
+    wp_post_url: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        orm_mode = True
+
+class GetBlogPostRequest(BaseModel):
+    record_id: int
+
+class GetBlogPostResponse(BaseModel):
+    success: bool
+    message: str
+    blog_post: Optional[SavedBlogPostResponse] = None
+    exists: bool = False
+
+class RegenerateBlogPostRequest(BaseModel):
+    record_id: int
+    seo_keywords: Optional[str] = None
+    tone: Optional[str] = "professional"
+    length: Optional[str] = "medium"
+    extra_instructions: Optional[str] = None
+    force_regenerate: bool = True  # Always overwrite existing
 
 class ParsedDataFeedbackRequest(BaseModel):
     record_id: int

@@ -10,8 +10,11 @@ from bs4 import BeautifulSoup
 
 # Database imports
 from db import get_db
-from models import FundingOpportunity, StatusEnum
-from schemas import GeneratePostRequest, GeneratePostResponse, PostEditFeedbackRequest, FeedbackResponse
+from models import FundingOpportunity, StatusEnum, BlogPost
+from schemas import (
+    GeneratePostRequest, GeneratePostResponse, PostEditFeedbackRequest, FeedbackResponse,
+    SavedBlogPostResponse, GetBlogPostRequest, GetBlogPostResponse, RegenerateBlogPostRequest
+)
 from utils.feedback_service import FeedbackService
 
 # Set up logging
@@ -454,10 +457,97 @@ CRITICAL: The response MUST be at least {min_words} words. Expand with relevant,
         
         return list(set(categories))
 
+@router.get("/get-blog-post", response_model=GetBlogPostResponse)
+async def get_blog_post(
+    record_id: int,
+    db: Session = Depends(get_db)
+) -> GetBlogPostResponse:
+    """
+    Get existing saved blog post for a funding opportunity
+    
+    Args:
+        record_id: Funding opportunity record ID
+        db: Database session dependency
+    
+    Returns:
+        GetBlogPostResponse: Existing blog post data or empty response
+    """
+    try:
+        logger.info(f"🔍 Looking for existing blog post for record ID: {record_id}")
+        
+        # Check if blog post exists
+        existing_blog_post = db.query(BlogPost).filter(
+            BlogPost.record_id == record_id
+        ).first()
+        
+        if existing_blog_post:
+            logger.info(f"✅ Found existing blog post (ID: {existing_blog_post.id}) for record {record_id}")
+            return GetBlogPostResponse(
+                success=True,
+                message="Existing blog post found",
+                blog_post=SavedBlogPostResponse.from_orm(existing_blog_post),
+                exists=True
+            )
+        else:
+            logger.info(f"📝 No existing blog post found for record {record_id}")
+            return GetBlogPostResponse(
+                success=True,
+                message="No existing blog post found",
+                blog_post=None,
+                exists=False
+            )
+            
+    except Exception as e:
+        logger.error(f"🔴 Error getting blog post for record {record_id}: {e}")
+        return GetBlogPostResponse(
+            success=False,
+            message=f"Failed to get blog post: {str(e)}",
+            blog_post=None,
+            exists=False
+        )
+
+@router.post("/regenerate-blog-post", response_model=GeneratePostResponse)
+async def regenerate_blog_post(
+    request: RegenerateBlogPostRequest,
+    db: Session = Depends(get_db)
+) -> GeneratePostResponse:
+    """
+    Force regenerate blog post, overwriting existing saved post
+    
+    Args:
+        request: Regeneration request with record_id and parameters
+        db: Database session dependency
+    
+    Returns:
+        GeneratePostResponse: Newly generated blog post content
+    """
+    try:
+        logger.info(f"🔄 Force regenerating blog post for record ID: {request.record_id}")
+        
+        # Convert to standard GeneratePostRequest and call generate_post with force flag
+        generate_request = GeneratePostRequest(
+            record_id=request.record_id,
+            seo_keywords=request.seo_keywords,
+            tone=request.tone,
+            length=request.length,
+            extra_instructions=request.extra_instructions
+        )
+        
+        # Call generate_post with force_regenerate=True
+        return await generate_post(generate_request, db, force_regenerate=True)
+        
+    except Exception as e:
+        logger.error(f"🔴 Error regenerating blog post for record {request.record_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to regenerate blog post: {str(e)}"
+        )
+
 @router.post("/generate-post", response_model=GeneratePostResponse)
 async def generate_post(
     request: GeneratePostRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    force_regenerate: bool = False
 ) -> GeneratePostResponse:
     """
     Generate a blog post from an approved funding opportunity using OpenAI
@@ -470,7 +560,36 @@ async def generate_post(
         GeneratePostResponse: Generated blog post content for preview
     """
     try:
-        logger.info(f"🚀 Generating blog post for record ID: {request.record_id}")
+        logger.info(f"🚀 Generating blog post for record ID: {request.record_id} (force_regenerate: {force_regenerate})")
+        
+        # Check for existing blog post first (unless force regenerating)
+        existing_blog_post = None
+        if not force_regenerate:
+            existing_blog_post = db.query(BlogPost).filter(
+                BlogPost.record_id == request.record_id
+            ).first()
+            
+            if existing_blog_post:
+                logger.info(f"✅ Found existing blog post (ID: {existing_blog_post.id}) for record {request.record_id}")
+                
+                # Return existing blog post
+                return GeneratePostResponse(
+                    success=True,
+                    message=f"Using existing saved blog post (last updated: {existing_blog_post.updated_at.strftime('%Y-%m-%d %H:%M')})",
+                    post_title=existing_blog_post.title,
+                    post_content=existing_blog_post.content,
+                    tags=existing_blog_post.tags or [],
+                    categories=existing_blog_post.categories or [],
+                    meta_title=existing_blog_post.meta_title,
+                    meta_description=existing_blog_post.meta_description,
+                    opportunity_url=None,  # Will be set below
+                    record_id=request.record_id,
+                    prompt_version=existing_blog_post.prompt_version,
+                    blog_post_id=existing_blog_post.id,
+                    is_existing=True,
+                    last_updated=existing_blog_post.updated_at,
+                    word_count=existing_blog_post.word_count
+                )
         
         # Fetch the funding opportunity from database
         opportunity = db.query(FundingOpportunity).filter(
@@ -539,6 +658,68 @@ async def generate_post(
         
         success_message = f"Successfully generated blog post for '{funding_data.get('title', 'Unknown Opportunity')}'. " + " | ".join(quality_indicators)
         
+        # 💾 SAVE TO DATABASE: Create or update blog post in database
+        try:
+            # Check if this is an update (existing blog post from force regenerate)
+            if force_regenerate and existing_blog_post:
+                logger.info(f"📝 Updating existing blog post (ID: {existing_blog_post.id}) for record {request.record_id}")
+                
+                # Update existing blog post
+                existing_blog_post.title = blog_data.get('post_title', '')
+                existing_blog_post.content = blog_data.get('post_content', '')
+                existing_blog_post.meta_title = blog_data.get('meta_title')
+                existing_blog_post.meta_description = blog_data.get('meta_description')
+                existing_blog_post.seo_keywords = request.seo_keywords
+                existing_blog_post.tags = blog_data.get('tags', [])
+                existing_blog_post.categories = blog_data.get('categories', [])
+                existing_blog_post.tone = request.tone
+                existing_blog_post.length = request.length
+                existing_blog_post.extra_instructions = request.extra_instructions
+                existing_blog_post.prompt_version = generator.CURRENT_PROMPT_VERSION
+                existing_blog_post.word_count = blog_data.get('word_count')
+                
+                db.commit()
+                db.refresh(existing_blog_post)
+                
+                blog_post_id = existing_blog_post.id
+                last_updated = existing_blog_post.updated_at
+                success_message += f" | Updated existing blog post (ID: {blog_post_id})"
+                
+            else:
+                logger.info(f"💾 Saving new blog post to database for record {request.record_id}")
+                
+                # Create new blog post
+                new_blog_post = BlogPost(
+                    record_id=request.record_id,
+                    title=blog_data.get('post_title', ''),
+                    content=blog_data.get('post_content', ''),
+                    meta_title=blog_data.get('meta_title'),
+                    meta_description=blog_data.get('meta_description'),
+                    seo_keywords=request.seo_keywords,
+                    tags=blog_data.get('tags', []),
+                    categories=blog_data.get('categories', []),
+                    tone=request.tone or "professional",
+                    length=request.length or "medium",
+                    extra_instructions=request.extra_instructions,
+                    prompt_version=generator.CURRENT_PROMPT_VERSION,
+                    word_count=blog_data.get('word_count')
+                )
+                
+                db.add(new_blog_post)
+                db.commit()
+                db.refresh(new_blog_post)
+                
+                blog_post_id = new_blog_post.id
+                last_updated = new_blog_post.created_at
+                success_message += f" | Saved to database (ID: {blog_post_id})"
+                
+        except Exception as db_error:
+            logger.error(f"🔴 Failed to save blog post to database: {db_error}")
+            # Don't fail the entire request if database save fails
+            blog_post_id = None
+            last_updated = None
+            success_message += " | ⚠️ Generated successfully but failed to save to database"
+        
         return GeneratePostResponse(
             success=True,
             message=success_message,
@@ -550,7 +731,11 @@ async def generate_post(
             meta_description=blog_data.get('meta_description'),
             opportunity_url=opportunity_url,
             record_id=request.record_id,
-            prompt_version=generator.CURRENT_PROMPT_VERSION
+            prompt_version=generator.CURRENT_PROMPT_VERSION,
+            blog_post_id=blog_post_id,
+            is_existing=False,
+            last_updated=last_updated,
+            word_count=blog_data.get('word_count')
         )
         
     except HTTPException:

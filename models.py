@@ -53,4 +53,27 @@ class AdminUser(Base):
     is_superuser = Column(Boolean, default=False, nullable=False)
     last_login = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+class BlogPost(Base):
+    __tablename__ = "blog_posts"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    record_id = Column(Integer, nullable=False, index=True)  # Foreign key to funding_opportunities.id
+    title = Column(Text, nullable=False)
+    content = Column(Text, nullable=False)  # HTML content
+    meta_title = Column(String, nullable=True)
+    meta_description = Column(Text, nullable=True)
+    seo_keywords = Column(String, nullable=True)
+    tags = Column(JSON, nullable=True, default=list)  # JSON array of tags
+    categories = Column(JSON, nullable=True, default=list)  # JSON array of categories
+    tone = Column(String, nullable=True, default="professional")
+    length = Column(String, nullable=True, default="medium")
+    extra_instructions = Column(Text, nullable=True)
+    prompt_version = Column(String, nullable=True, default="v1.0")
+    word_count = Column(Integer, nullable=True)
+    is_published_to_wp = Column(Boolean, default=False, nullable=False)
+    wp_post_id = Column(Integer, nullable=True)  # WordPress post ID if published
+    wp_post_url = Column(String, nullable=True)  # WordPress post URL if published
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False) 
