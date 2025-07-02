@@ -105,15 +105,15 @@
 
         <form method="POST" action="/admin/login">
             <div class="form-group">
-                <label for="username" class="form-label">Username</label>
+                <label for="email" class="form-label">Email</label>
                 <input 
-                    type="text" 
-                    id="username" 
-                    name="username" 
+                    type="email" 
+                    id="email" 
+                    name="email" 
                     class="form-input" 
                     required 
-                    autocomplete="username"
-                    value="{{ username or '' }}"
+                    autocomplete="email"
+                    value="{{ email or '' }}"
                 >
             </div>
 

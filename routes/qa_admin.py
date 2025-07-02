@@ -8,11 +8,12 @@ from typing import List, Dict, Any
 from db import get_db
 from models import FundingOpportunity, StatusEnum
 from utils.auth import (
-    verify_admin_credentials, 
-    create_session_token, 
-    get_session_user,
-    require_admin_auth,
-    AuthService,
+    verify_admin_credentials,
+    is_logged_in,
+    create_admin_session,
+    clear_admin_session,
+    require_login,
+    get_current_admin,
     get_csrf_token,
     verify_csrf_token
 )
@@ -44,70 +45,36 @@ async def login_page(request: Request, error: str = ""):
 @router.post("/login")
 async def login_submit(
     request: Request,
-    username: str = Form(...),
-    password: str = Form(...),
-    db: Session = Depends(get_db)
+    email: str = Form(...),
+    password: str = Form(...)
 ):
     """
-    Process admin login with enhanced security
+    Process admin login using environment variables
     """
     try:
-        # Try new secure authentication first
-        user = AuthService.authenticate_user(db, username, password)
-        
-        if user:
-            # Create session token
-            session_token = AuthService.create_session_token(user)
+        # Verify credentials against environment variables
+        if verify_admin_credentials(email, password):
+            # Create session
+            create_admin_session(request)
             
-            # Create redirect response to dashboard
+            # Redirect to dashboard
             response = RedirectResponse(
                 url="/admin/dashboard",
                 status_code=303
             )
             
-            # Set secure session cookie
-            response.set_cookie(
-                key="admin_session",
-                value=session_token,
-                httponly=True,
-                secure=False,  # Set to True in production with HTTPS
-                samesite="lax",
-                max_age=86400  # 24 hours
-            )
-            
-            logger.info(f"✅ Admin login successful for user: {username} ({user.email})")
+            logger.info(f"✅ Admin login successful for: {email}")
             return response
         else:
-            # Fallback to legacy authentication for backward compatibility
-            if verify_admin_credentials(username, password, db):
-                session_token = create_session_token(username)
-                
-                response = RedirectResponse(
-                    url="/admin/dashboard",
-                    status_code=303
-                )
-                
-                response.set_cookie(
-                    key="admin_session",
-                    value=session_token,
-                    httponly=True,
-                    secure=False,
-                    samesite="lax",
-                    max_age=86400
-                )
-                
-                logger.info(f"✅ Legacy admin login successful for user: {username}")
-                return response
-            else:
-                logger.warning(f"❌ Failed login attempt for user: {username}")
-                return templates.TemplateResponse(
-                    "login.html",
-                    {
-                        "request": request,
-                        "error": "Invalid credentials or unauthorized email",
-                        "username": username
-                    }
-                )
+            logger.warning(f"❌ Failed login attempt for: {email}")
+            return templates.TemplateResponse(
+                "login.html",
+                {
+                    "request": request,
+                    "error": "Invalid email or password",
+                    "email": email
+                }
+            )
     except Exception as e:
         logger.error(f"🔴 Error during login: {str(e)}")
         return templates.TemplateResponse(
@@ -115,17 +82,17 @@ async def login_submit(
             {
                 "request": request,
                 "error": "An error occurred during login",
-                "username": username
+                "email": email
             }
         )
 
 @router.get("/logout")
 async def logout(request: Request):
     """
-    Admin logout
+    Admin logout - clear session and redirect to login
     """
+    clear_admin_session(request)
     response = RedirectResponse(url="/admin/login", status_code=303)
-    response.delete_cookie("admin_session")
     logger.info("🔓 Admin logout successful")
     return response
 
@@ -133,7 +100,7 @@ async def logout(request: Request):
 async def qa_review_dashboard(
     request: Request,
     db: Session = Depends(get_db),
-    current_user: str = Depends(require_admin_auth)
+    _: bool = Depends(require_login)
 ):
     """
     QA Review Dashboard - Display all raw funding opportunities for review
@@ -144,6 +111,7 @@ async def qa_review_dashboard(
             FundingOpportunity.status == StatusEnum.raw
         ).order_by(FundingOpportunity.created_at.desc()).all()
         
+        current_user = get_current_admin(request)
         logger.info(f"📋 Retrieved {len(raw_opportunities)} raw funding opportunities for QA review (User: {current_user})")
         
         # Extract relevant fields for the template

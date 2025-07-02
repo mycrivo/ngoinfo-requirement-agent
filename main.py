@@ -1,6 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 import logging
+import os
+import secrets
 
 from routes.requirement_agent import router as requirement_router
 from routes.qa_admin import router as qa_admin_router
@@ -8,9 +11,8 @@ from routes.publish import router as publish_router
 from routes.generate_post import router as generate_post_router
 from routes.proposal_template import router as proposal_template_router
 # Re-enable DB-related imports
-from db import engine, get_db
+from db import engine
 from models import Base
-from utils.auth import ensure_admin_users_exist
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -20,11 +22,6 @@ logger = logging.getLogger(__name__)
 try:
     Base.metadata.create_all(bind=engine)
     logger.info("✅ Database tables created successfully")
-    
-    # Initialize admin users
-    db = next(get_db())
-    ensure_admin_users_exist(db)
-    
     db_available = True
 except Exception as e:
     logger.warning(f"⚠️ Database not available (likely local development): {str(e)}")
@@ -37,6 +34,10 @@ app = FastAPI(
     description="API for parsing funding opportunities from URLs with database storage and QA review",
     version="2.0.0"
 )
+
+# Add session middleware for admin authentication
+SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 
 # Add CORS middleware
 app.add_middleware(
