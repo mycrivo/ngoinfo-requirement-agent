@@ -425,6 +425,41 @@
             display: none !important;
         }
         
+        /* Disabled/placeholder styles */
+        .disabled-link {
+            color: #888 !important;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .disabled-link:hover {
+            color: #888 !important;
+            text-decoration: none;
+        }
+
+        .btn-disabled {
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            color: #666;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+
+        .btn-disabled:hover {
+            background: #f5f5f5;
+            border-color: #ddd;
+            color: #666;
+        }
+
+        .placeholder-note {
+            margin-top: 8px;
+            font-style: italic;
+        }
+
+        .text-muted {
+            color: #666;
+        }
+        
         .btn-success {
             background: #28a745;
             color: white;
@@ -786,7 +821,7 @@
                 <li><a href="/admin/proposal-template/start">📄 Template Generator</a></li>
                 <li><a href="/admin/qa">📝 Post Publisher</a></li>
                 <li><a href="/admin/feedback/stats">📊 Feedback & Analytics</a></li>
-                <li><a href="#" onclick="alert('Coming Soon!')">⚙️ Settings</a></li>
+                <li><a href="#" onclick="showSettingsPlaceholder()" class="disabled-link">⚙️ Settings</a></li>
             </ul>
             
             <div class="navbar-user">
@@ -1191,7 +1226,7 @@
             <h2>🚧 Implementation Status</h2>
             <ul class="todo-list">
                 <li><strong>✅ Step 1 - Parse & Curate:</strong> Complete URL parsing, editing, and QA approval workflow</li>
-                <li><strong>✅ Step 2 - Generate & Edit Blog Post:</strong> AI generation, editing, and WordPress publishing</li>
+                <li><strong>✅ Step 2 - Generate & Edit Blog Post:</strong> AI generation, editing, database persistence, and WordPress publishing</li>
                 <li><strong>✅ Step 3 - Proposal Templates:</strong> Complete template generation, editing, and .docx download</li>
                 <li><strong>✅ 3-Step QA Workflow:</strong> Fully integrated end-to-end process with manual learning logs</li>
                 <li><strong>✅ QA Review Dashboard:</strong> Fully implemented with feedback capture</li>
@@ -1286,7 +1321,10 @@
                 <div class="function-icon">⚙️</div>
                 <h3>Settings</h3>
                 <p>Configure system settings, user management, and integrations.</p>
-                <a href="#" onclick="alert('Settings panel coming soon!')" class="btn">Manage Settings</a>
+                <button type="button" class="btn btn-disabled" onclick="showSettingsPlaceholder()">⚠️ Coming Soon</button>
+                <div class="placeholder-note">
+                    <small class="text-muted">Settings management system is planned for future release</small>
+                </div>
             </div>
         </div>
 
@@ -2413,6 +2451,12 @@
             messageDiv.textContent = text;
             messageDiv.className = `message ${type}`;
             messageDiv.classList.remove('hidden');
+        }
+        
+        // Settings placeholder function
+        function showSettingsPlaceholder() {
+            const message = `⚙️ Settings Management\n\nThe settings panel is planned for a future release and will include:\n\n• User account management\n• API configuration\n• System preferences\n• Integration settings\n• Security options\n\nFor now, system configuration is handled via environment variables.`;
+            alert(message);
         }
         
         function clearBlogForm() {
