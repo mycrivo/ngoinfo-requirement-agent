@@ -155,6 +155,43 @@ class WordPressPublisher:
         try:
             logger.info(f"🚀 [{request_id}] Making WordPress API request...")
             
+            # 🛰️ FINAL REQUEST LOGGING - Exactly what will be sent to WordPress
+            logger.info(f"🛰️ WP Final POST URL: {url}")
+            
+            # Prepare final headers with auth
+            final_headers = self.headers.copy()
+            # Note: requests.request() handles auth separately, so we don't add it to headers
+            # But we'll log what headers are being sent
+            logger.info(f"📦 Headers: {json.dumps(final_headers, indent=2)}")
+            
+            # Log authentication info separately
+            logger.info(f"🔐 Authentication: HTTPBasicAuth with username={self.username}")
+            
+            # Log payload if present
+            if 'json' in kwargs:
+                payload = kwargs['json']
+                logger.info(f"📤 Payload Preview: {json.dumps(payload, indent=2)[:1000]}")  # truncate to avoid overlogging
+            
+            # Verify required headers are present
+            required_headers = {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+            
+            for header_name, expected_value in required_headers.items():
+                if header_name in final_headers:
+                    if final_headers[header_name] == expected_value:
+                        logger.info(f"✅ Header verified: {header_name} = {expected_value}")
+                    else:
+                        logger.warning(f"⚠️ Header mismatch: {header_name} = {final_headers[header_name]} (expected: {expected_value})")
+                else:
+                    logger.error(f"❌ Missing required header: {header_name}")
+            
+            # Confirm method and URL are not mutated
+            logger.info(f"🎯 Final METHOD: {method}")
+            logger.info(f"🎯 Final URL (pre-request): {url}")
+            
+            # Make the actual request
             response = requests.request(
                 method=method,
                 url=url,
@@ -177,58 +214,54 @@ class WordPressPublisher:
                 response_text = response.text[:1000]
                 logger.info(f"   Response body (text): {response_text}")
             
-            # Check for HTTP errors
-            if not response.ok:
-                self._handle_http_error(response, request_id)
+            # Check for HTTP errors - this will raise HTTPError for non-2xx responses
+            response.raise_for_status()
             
             return response
             
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"❌ WP POST failed: {e}")
+            logger.error(f"📨 WP Response Status: {response.status_code}")
+            logger.error(f"📨 WP Response Headers: {dict(response.headers)}")
+            logger.error(f"📨 WP Response Content: {response.text}")
+            logger.error(f"📨 WP Request URL: {url}")
+            logger.error(f"📨 WP Request Method: {method}")
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"WordPress API HTTP error: {response.status_code} - {response.text}"
+            )
         except requests.exceptions.ConnectionError as e:
-            logger.error(f"🔴 [{request_id}] Connection failed to WordPress API: {e}")
+            logger.error(f"❌ WP POST failed: {e}")
+            logger.error(f"📨 WP Connection Error Details:")
             logger.error(f"   URL: {url}")
+            logger.error(f"   Method: {method}")
             logger.error(f"   Check if WordPress site is accessible and API URL is correct")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=f"Cannot connect to WordPress API. Please check if the site is accessible and the API URL is correct. (Error: {str(e)})"
             )
         except requests.exceptions.Timeout as e:
-            logger.error(f"🔴 [{request_id}] WordPress API request timed out: {e}")
+            logger.error(f"❌ WP POST failed: {e}")
+            logger.error(f"📨 WP Timeout Error Details:")
+            logger.error(f"   URL: {url}")
+            logger.error(f"   Method: {method}")
+            logger.error(f"   Timeout: 30 seconds")
             raise HTTPException(
                 status_code=status.HTTP_504_GATEWAY_TIMEOUT,
                 detail="WordPress API request timed out. The site may be slow or experiencing issues."
             )
         except requests.exceptions.RequestException as e:
-            # 🔍 ENHANCED ERROR LOGGING: Capture complete failure details
-            logger.error(f"❌ WordPress API request failed: {e}")
-            logger.error(f"❌ [{request_id}] WordPress API error details:")
-            
-            # Log the response details if available
+            logger.error(f"❌ WP POST failed: {e}")
+            logger.error(f"📨 WP Request Exception Details:")
+            logger.error(f"   URL: {url}")
+            logger.error(f"   Method: {method}")
+            logger.error(f"   Exception Type: {type(e).__name__}")
             if hasattr(e, 'response') and e.response is not None:
-                logger.error(f"❌ WP RESPONSE STATUS: {e.response.status_code}")
-                logger.error(f"❌ WP RESPONSE HEADERS: {json.dumps(dict(e.response.headers), indent=2)}")
-                logger.error(f"❌ WP RESPONSE TEXT: {e.response.text}")
-                logger.error(f"❌ WP RESPONSE URL: {e.response.url}")
-                logger.error(f"❌ WP RESPONSE REASON: {e.response.reason}")
-                
-                # Try to parse JSON error from WordPress
-                try:
-                    error_json = e.response.json()
-                    logger.error(f"❌ WP RESPONSE JSON: {json.dumps(error_json, indent=2)}")
-                except (ValueError, json.JSONDecodeError):
-                    logger.error("❌ Could not parse WordPress error response as JSON")
-            else:
-                logger.error(f"❌ No response object available in exception")
-                logger.error(f"❌ Exception type: {type(e)}")
-                logger.error(f"❌ Exception args: {e.args}")
-            
-            # Log the original request details for comparison
-            logger.error(f"❌ FAILED REQUEST URL: {url}")
-            logger.error(f"❌ FAILED REQUEST METHOD: {method}")
-            logger.error(f"❌ Full exception traceback: {traceback.format_exc()}")
-            
+                logger.error(f"📨 WP Response Content: {e.response.text}")
+                logger.error(f"📨 WP Response Status: {e.response.status_code}")
             raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Failed to communicate with WordPress: {str(e)}"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"WordPress API request failed: {str(e)}"
             )
     
     def _handle_http_error(self, response: requests.Response, request_id: str):
