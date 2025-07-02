@@ -83,29 +83,35 @@ class WordPressPublisher:
         url = f"{self.base_url}/wp-json/wp/v2/{endpoint}"
         request_id = datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:20]
         
-        # Log request details
-        logger.info(f"🔄 [{request_id}] WordPress API Request:")
-        logger.info(f"   Method: {method}")
-        logger.info(f"   URL: {url}")
-        logger.info(f"   Headers: {dict(self.headers)}")
+        # 🔍 ENHANCED DEBUGGING: Log full WordPress request details
+        logger.info(f"🔍 WP PUBLISH: URL = {url}")
+        logger.info(f"🔍 WP PUBLISH: METHOD = {method}")
+        logger.info(f"🔍 WP PUBLISH: HEADERS = {json.dumps(dict(self.headers), indent=2)}")
+        logger.info(f"🔍 WP PUBLISH: BASE_URL = {self.base_url}")
+        logger.info(f"🔍 WP PUBLISH: ENDPOINT = {endpoint}")
+        logger.info(f"🔍 WP PUBLISH: FULL_URL_CONSTRUCTION = {self.base_url} + /wp-json/wp/v2/ + {endpoint}")
+        
+        # Log authentication details (without exposing credentials)
+        logger.info(f"🔍 WP PUBLISH: AUTH_USERNAME = {self.username}")
+        logger.info(f"🔍 WP PUBLISH: AUTH_TYPE = HTTPBasicAuth")
+        logger.info(f"🔍 WP PUBLISH: HAS_PASSWORD = {'Yes' if self.app_password else 'No'}")
         
         # Log request payload if present
         if 'json' in kwargs:
             payload = kwargs['json']
-            logger.info(f"   Payload keys: {list(payload.keys()) if isinstance(payload, dict) else 'Not a dict'}")
-            if isinstance(payload, dict):
-                # Log non-sensitive payload data
-                safe_payload = {k: (v[:100] + '...' if isinstance(v, str) and len(v) > 100 else v) 
-                              for k, v in payload.items() if k not in ['content']}
-                logger.info(f"   Payload (truncated): {json.dumps(safe_payload, indent=2, default=str)}")
-                if 'content' in payload:
-                    content_length = len(payload['content']) if payload['content'] else 0
-                    logger.info(f"   Content length: {content_length} characters")
+            logger.info(f"🔍 WP PUBLISH: PAYLOAD = {json.dumps(payload, indent=2, default=str)}")
+            logger.info(f"🔍 WP PUBLISH: PAYLOAD_SIZE = {len(json.dumps(payload)) if payload else 0} characters")
         
         if 'params' in kwargs:
-            logger.info(f"   Query params: {kwargs['params']}")
+            logger.info(f"🔍 WP PUBLISH: QUERY_PARAMS = {json.dumps(kwargs['params'], indent=2)}")
+        
+        # Log additional request details
+        logger.info(f"🔍 WP PUBLISH: TIMEOUT = 30 seconds")
+        logger.info(f"🔍 WP PUBLISH: REQUEST_ID = {request_id}")
         
         try:
+            logger.info(f"🚀 [{request_id}] Making WordPress API request...")
+            
             response = requests.request(
                 method=method,
                 url=url,
@@ -149,8 +155,34 @@ class WordPressPublisher:
                 detail="WordPress API request timed out. The site may be slow or experiencing issues."
             )
         except requests.exceptions.RequestException as e:
-            logger.error(f"🔴 [{request_id}] WordPress API request failed: {e}")
-            logger.error(f"   Full exception: {traceback.format_exc()}")
+            # 🔍 ENHANCED ERROR LOGGING: Capture complete failure details
+            logger.error(f"❌ WordPress API request failed: {e}")
+            logger.error(f"❌ [{request_id}] WordPress API error details:")
+            
+            # Log the response details if available
+            if hasattr(e, 'response') and e.response is not None:
+                logger.error(f"❌ WP RESPONSE STATUS: {e.response.status_code}")
+                logger.error(f"❌ WP RESPONSE HEADERS: {json.dumps(dict(e.response.headers), indent=2)}")
+                logger.error(f"❌ WP RESPONSE TEXT: {e.response.text}")
+                logger.error(f"❌ WP RESPONSE URL: {e.response.url}")
+                logger.error(f"❌ WP RESPONSE REASON: {e.response.reason}")
+                
+                # Try to parse JSON error from WordPress
+                try:
+                    error_json = e.response.json()
+                    logger.error(f"❌ WP RESPONSE JSON: {json.dumps(error_json, indent=2)}")
+                except (ValueError, json.JSONDecodeError):
+                    logger.error("❌ Could not parse WordPress error response as JSON")
+            else:
+                logger.error(f"❌ No response object available in exception")
+                logger.error(f"❌ Exception type: {type(e)}")
+                logger.error(f"❌ Exception args: {e.args}")
+            
+            # Log the original request details for comparison
+            logger.error(f"❌ FAILED REQUEST URL: {url}")
+            logger.error(f"❌ FAILED REQUEST METHOD: {method}")
+            logger.error(f"❌ Full exception traceback: {traceback.format_exc()}")
+            
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=f"Failed to communicate with WordPress: {str(e)}"
