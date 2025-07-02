@@ -43,4 +43,80 @@ class GenerateBlogResponse(BaseModel):
     opportunity_id: Optional[int] = None
     title: Optional[str] = None
     blog_post: Optional[str] = None
-    message: Optional[str] = None 
+    message: Optional[str] = None
+
+class PublishToWordPressRequest(BaseModel):
+    title: str
+    content: str  # HTML content
+    tags: list[str]
+    categories: list[str]
+    opportunity_url: str
+    meta_title: str
+    meta_description: str
+
+class PublishToWordPressResponse(BaseModel):
+    success: bool
+    message: str
+    wordpress_response: Optional[Dict[Any, Any]] = None
+    post_id: Optional[int] = None
+    post_url: Optional[str] = None
+
+class GeneratePostRequest(BaseModel):
+    record_id: int
+    seo_keywords: Optional[str] = None
+    tone: Optional[str] = "professional"  # professional, persuasive, informal
+    length: Optional[str] = "medium"  # short, medium, long
+    extra_instructions: Optional[str] = None
+
+class GeneratePostResponse(BaseModel):
+    success: bool
+    message: str
+    post_title: Optional[str] = None
+    post_content: Optional[str] = None  # HTML content
+    tags: Optional[list[str]] = None
+    categories: Optional[list[str]] = None
+    meta_title: Optional[str] = None
+    meta_description: Optional[str] = None
+    opportunity_url: Optional[str] = None
+    record_id: Optional[int] = None
+    prompt_version: Optional[str] = None
+
+class ParsedDataFeedbackRequest(BaseModel):
+    record_id: int
+    field_edits: Dict[str, Any]  # field_name -> new_value mapping
+    prompt_version: Optional[str] = "v1.0"
+
+class PostEditFeedbackRequest(BaseModel):
+    record_id: int
+    section_edits: Dict[str, str]  # section -> edited_text mapping
+    prompt_version: Optional[str] = "v1.0"
+
+class FeedbackResponse(BaseModel):
+    success: bool
+    message: str
+    feedback_count: Optional[int] = None
+
+class QAUpdateRequest(BaseModel):
+    """Enhanced QA update request with individual field edits"""
+    record_id: int
+    field_updates: Dict[str, Any]  # Updated fields from JSON data
+    editable_text: Optional[str] = None
+    status: Optional[str] = None
+    prompt_version: Optional[str] = "v1.0"
+
+class ProposalSection(BaseModel):
+    heading: str
+    instruction: str
+
+class CreateProposalTemplateRequest(BaseModel):
+    record_id: int
+    sections: list[ProposalSection]
+    funder_notes: Optional[str] = None
+
+class ProposalTemplateResponse(BaseModel):
+    success: bool
+    message: str
+    filename: Optional[str] = None
+    download_url: Optional[str] = None
+    timestamp: Optional[str] = None
+    opportunity_title: Optional[str] = None 

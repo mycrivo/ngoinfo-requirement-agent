@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title }} - ReqAgent</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        h1 {
+            color: #333;
+            margin: 0;
+        }
+        .user-info {
+            color: #666;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        .opportunity-info {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+        .opportunity-info h2 {
+            margin-top: 0;
+            color: #007bff;
+        }
+        .opportunity-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .detail-item {
+            display: flex;
+            flex-direction: column;
+        }
+        .detail-label {
+            font-weight: bold;
+            color: #495057;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .detail-value {
+            color: #333;
+            margin-top: 5px;
+        }
+        .form-group {
+            margin-bottom: 25px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #333;
+        }
+        select, input, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        select:focus, input:focus, textarea:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
+        }
+        .sections-container {
+            border: 2px dashed #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 25px;
+            background: #fafafa;
+        }
+        .section-item {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 20px;
+            margin-bottom: 15px;
+            position: relative;
+        }
+        .section-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .section-number {
+            background: #007bff;
+            color: white;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-right: 15px;
+        }
+        .section-controls {
+            display: flex;
+            gap: 10px;
+        }
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+        }
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #0056b3;
+        }
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        .btn-secondary:hover {
+            background: #545b62;
+        }
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        .btn-danger:hover {
+            background: #c82333;
+        }
+        .btn-success {
+            background: #28a745;
+            color: white;
+            font-size: 16px;
+            padding: 12px 24px;
+        }
+        .btn-success:hover {
+            background: #218838;
+        }
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+        .add-section-btn {
+            width: 100%;
+            padding: 15px;
+            border: 2px dashed #007bff;
+            background: transparent;
+            color: #007bff;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.2s;
+        }
+        .add-section-btn:hover {
+            background: #007bff;
+            color: white;
+        }
+        .result-container {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-radius: 6px;
+            padding: 20px;
+            margin-top: 20px;
+            display: none;
+        }
+        .error-container {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 6px;
+            padding: 20px;
+            margin-top: 20px;
+            display: none;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #007bff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{{ page_title }}</h1>
+            <div class="user-info">Logged in as: {{ current_user }}</div>
+        </div>
+
+        <!-- Opportunity Selection -->
+        <div class="form-group">
+            <label for="opportunity-select">Select Funding Opportunity:</label>
+            <select id="opportunity-select" onchange="loadOpportunity()">
+                <option value="">-- Select an approved opportunity --</option>
+                {% for opp in opportunities %}
+                <option value="{{ opp.id }}" {% if opportunity and opportunity.id == opp.id %}selected{% endif %}>
+                    {{ opp.title }} ({{ opp.donor }}) - {{ opp.created_at }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <!-- Opportunity Information Display -->
+        {% if opportunity %}
+        <div class="opportunity-info">
+            <h2>📋 Opportunity Context</h2>
+            <div class="opportunity-details">
+                <div class="detail-item">
+                    <span class="detail-label">Title</span>
+                    <span class="detail-value">{{ opportunity.title }}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Donor/Funder</span>
+                    <span class="detail-value">{{ opportunity.donor }}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Deadline</span>
+                    <span class="detail-value">{{ opportunity.deadline }}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Funding Amount</span>
+                    <span class="detail-value">{{ opportunity.amount }}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Location</span>
+                    <span class="detail-value">{{ opportunity.location }}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Themes</span>
+                    <span class="detail-value">
+                        {% if opportunity.themes %}
+                            {% if opportunity.themes is string %}
+                                {{ opportunity.themes }}
+                            {% else %}
+                                {{ opportunity.themes | join(', ') }}
+                            {% endif %}
+                        {% else %}
+                            Not specified
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Template Generation Form -->
+        <form id="template-form">
+            <input type="hidden" id="record-id" value="{{ opportunity.id if opportunity else '' }}">
+            
+            <!-- Funder Notes -->
+            <div class="form-group">
+                <label for="funder-notes">Funder Requirements & Notes (Optional):</label>
+                <textarea id="funder-notes" rows="3" placeholder="e.g., Maximum 2 pages, use specific Excel budget template, include letters of support..."></textarea>
+            </div>
+
+            <!-- Sections -->
+            <div class="form-group">
+                <label>Proposal Sections:</label>
+                <div class="sections-container">
+                    <div id="sections-list">
+                        <!-- Sections will be added here dynamically -->
+                    </div>
+                    <button type="button" class="add-section-btn" onclick="addSection()">
+                        ➕ Add New Section
+                    </button>
+                </div>
+            </div>
+
+            <!-- Generate Button -->
+            <div class="form-group">
+                <button type="submit" class="btn btn-success">
+                    📄 Generate Proposal Template
+                </button>
+            </div>
+        </form>
+        {% else %}
+        <div class="opportunity-info">
+            <h2>ℹ️ No Opportunity Selected</h2>
+            <p>Please select an approved funding opportunity from the dropdown above to create a proposal template.</p>
+        </div>
+        {% endif %}
+
+        <!-- Loading -->
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Generating proposal template...</p>
+        </div>
+
+        <!-- Results -->
+        <div class="result-container" id="result">
+            <!-- Success message will appear here -->
+        </div>
+
+        <!-- Errors -->
+        <div class="error-container" id="error">
+            <!-- Error message will appear here -->
+        </div>
+    </div>
+
+    <script>
+        let sectionCounter = 0;
+
+        // Initialize with default sections
+        document.addEventListener('DOMContentLoaded', function() {
+            addSection('Project Goals & Objectives', 'Describe what your project aims to achieve in 2-3 sentences. Include specific, measurable outcomes.');
+            addSection('Project Description', 'Provide a detailed description of your project activities, methodology, and timeline.');
+            addSection('Budget & Financial Plan', 'Use the donor\'s provided format if available. Include high-level breakdown and justification.');
+            addSection('Impact & Expected Outcomes', 'Describe the anticipated impact of your project and how you will measure success.');
+        });
+
+        function loadOpportunity() {
+            const select = document.getElementById('opportunity-select');
+            if (select.value) {
+                window.location.href = `/admin/proposal-template/start?record_id=${select.value}`;
+            }
+        }
+
+        function addSection(heading = '', instruction = '') {
+            sectionCounter++;
+            const sectionsContainer = document.getElementById('sections-list');
+            
+            const sectionDiv = document.createElement('div');
+            sectionDiv.className = 'section-item';
+            sectionDiv.innerHTML = `
+                <div class="section-header">
+                    <div style="display: flex; align-items: center;">
+                        <div class="section-number">${sectionCounter}</div>
+                        <div style="flex: 1;">
+                            <input type="text" placeholder="Section Heading" value="${heading}" 
+                                   style="width: 100%; font-weight: bold;" onchange="updateSectionNumbers()">
+                        </div>
+                    </div>
+                    <div class="section-controls">
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="moveSection(this, 'up')">↑</button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="moveSection(this, 'down')">↓</button>
+                        <button type="button" class="btn btn-danger btn-sm" onclick="removeSection(this)">✕</button>
+                    </div>
+                </div>
+                <textarea rows="3" placeholder="Instructions for this section (what should be included, word limits, specific requirements...)" 
+                          style="width: 100%;">${instruction}</textarea>
+            `;
+            
+            sectionsContainer.appendChild(sectionDiv);
+        }
+
+        function removeSection(button) {
+            button.closest('.section-item').remove();
+            updateSectionNumbers();
+        }
+
+        function moveSection(button, direction) {
+            const section = button.closest('.section-item');
+            const container = section.parentNode;
+            
+            if (direction === 'up' && section.previousElementSibling) {
+                container.insertBefore(section, section.previousElementSibling);
+            } else if (direction === 'down' && section.nextElementSibling) {
+                container.insertBefore(section.nextElementSibling, section);
+            }
+            
+            updateSectionNumbers();
+        }
+
+        function updateSectionNumbers() {
+            const sections = document.querySelectorAll('.section-item');
+            sections.forEach((section, index) => {
+                const numberDiv = section.querySelector('.section-number');
+                numberDiv.textContent = index + 1;
+            });
+        }
+
+        // Form submission
+        document.getElementById('template-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const recordId = document.getElementById('record-id').value;
+            if (!recordId) {
+                showError('Please select a funding opportunity first.');
+                return;
+            }
+
+            const sections = [];
+            const sectionItems = document.querySelectorAll('.section-item');
+            
+            for (let item of sectionItems) {
+                const heading = item.querySelector('input').value.trim();
+                const instruction = item.querySelector('textarea').value.trim();
+                
+                if (heading && instruction) {
+                    sections.push({ heading, instruction });
+                }
+            }
+
+            if (sections.length === 0) {
+                showError('Please add at least one section with both heading and instruction.');
+                return;
+            }
+
+            const funderNotes = document.getElementById('funder-notes').value.trim();
+
+            // Show loading
+            showLoading(true);
+            hideResults();
+
+            try {
+                const response = await fetch('/admin/proposal-template/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        record_id: parseInt(recordId),
+                        sections: sections,
+                        funder_notes: funderNotes || null
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showSuccess(result);
+                } else {
+                    showError(result.message || 'Failed to generate template');
+                }
+            } catch (error) {
+                showError('Network error: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        });
+
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+
+        function hideResults() {
+            document.getElementById('result').style.display = 'none';
+            document.getElementById('error').style.display = 'none';
+        }
+
+        function showSuccess(result) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = `
+                <h3>✅ Template Generated Successfully!</h3>
+                <p><strong>Opportunity:</strong> ${result.opportunity_title}</p>
+                <p><strong>Filename:</strong> ${result.filename}</p>
+                <p><strong>Generated:</strong> ${new Date(result.timestamp).toLocaleString()}</p>
+                <p><strong>Message:</strong> ${result.message}</p>
+                <p>
+                    <a href="${result.download_url}" class="btn btn-primary" download>
+                        📥 Download Template
+                    </a>
+                </p>
+            `;
+            resultDiv.style.display = 'block';
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.innerHTML = `<h3>❌ Error</h3><p>${message}</p>`;
+            errorDiv.style.display = 'block';
+        }
+    </script>
+</body>
+</html> 

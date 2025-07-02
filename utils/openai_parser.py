@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 # Configure OpenAI API key
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
+# Current parsing prompt version for tracking
+CURRENT_PARSING_PROMPT_VERSION = "v2.1"
+
 # Define expected fields for the gold-standard structure
 EXPECTED_FIELDS = {
     "required": ["title", "donor", "summary", "amount", "deadline", "location", "eligibility", "themes"],

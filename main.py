@@ -4,9 +4,13 @@ import logging
 
 from routes.requirement_agent import router as requirement_router
 from routes.qa_admin import router as qa_admin_router
+from routes.publish import router as publish_router
+from routes.generate_post import router as generate_post_router
+from routes.proposal_template import router as proposal_template_router
 # Re-enable DB-related imports
-from db import engine
+from db import engine, get_db
 from models import Base
+from utils.auth import ensure_admin_users_exist
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -16,6 +20,11 @@ logger = logging.getLogger(__name__)
 try:
     Base.metadata.create_all(bind=engine)
     logger.info("✅ Database tables created successfully")
+    
+    # Initialize admin users
+    db = next(get_db())
+    ensure_admin_users_exist(db)
+    
     db_available = True
 except Exception as e:
     logger.warning(f"⚠️ Database not available (likely local development): {str(e)}")
@@ -41,11 +50,17 @@ app.add_middleware(
 # Register routes
 app.include_router(requirement_router)
 app.include_router(qa_admin_router)
+app.include_router(publish_router)
+app.include_router(generate_post_router)
+app.include_router(proposal_template_router)
 
 # Log registered routes
 logger.info("🚀 Routes registered:")
 logger.info("   📋 API Routes: /api/requirement/*")
 logger.info("   🔐 Admin Routes: /admin/login, /admin/logout, /admin/qa-review")
+logger.info("   📝 WordPress Routes: /api/wordpress/*")
+logger.info("   🤖 Blog Generation Routes: /api/generate-post")
+logger.info("   📄 Proposal Template Routes: /admin/proposal-template/*")
 
 @app.get("/")
 async def root():

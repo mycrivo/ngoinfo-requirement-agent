@@ -11,8 +11,13 @@ from utils.auth import (
     verify_admin_credentials, 
     create_session_token, 
     get_session_user,
-    require_admin_auth
+    require_admin_auth,
+    AuthService,
+    get_csrf_token,
+    verify_csrf_token
 )
+from utils.feedback_service import FeedbackService
+from schemas import QAUpdateRequest, FeedbackResponse
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -40,19 +45,23 @@ async def login_page(request: Request, error: str = ""):
 async def login_submit(
     request: Request,
     username: str = Form(...),
-    password: str = Form(...)
+    password: str = Form(...),
+    db: Session = Depends(get_db)
 ):
     """
-    Process admin login
+    Process admin login with enhanced security
     """
     try:
-        if verify_admin_credentials(username, password):
+        # Try new secure authentication first
+        user = AuthService.authenticate_user(db, username, password)
+        
+        if user:
             # Create session token
-            session_token = create_session_token(username)
+            session_token = AuthService.create_session_token(user)
             
-            # Create redirect response
+            # Create redirect response to dashboard
             response = RedirectResponse(
-                url="/admin/qa-review",
+                url="/admin/dashboard",
                 status_code=303
             )
             
@@ -66,18 +75,39 @@ async def login_submit(
                 max_age=86400  # 24 hours
             )
             
-            logger.info(f"✅ Admin login successful for user: {username}")
+            logger.info(f"✅ Admin login successful for user: {username} ({user.email})")
             return response
         else:
-            logger.warning(f"❌ Failed login attempt for user: {username}")
-            return templates.TemplateResponse(
-                "login.html",
-                {
-                    "request": request,
-                    "error": "Invalid username or password",
-                    "username": username
-                }
-            )
+            # Fallback to legacy authentication for backward compatibility
+            if verify_admin_credentials(username, password, db):
+                session_token = create_session_token(username)
+                
+                response = RedirectResponse(
+                    url="/admin/dashboard",
+                    status_code=303
+                )
+                
+                response.set_cookie(
+                    key="admin_session",
+                    value=session_token,
+                    httponly=True,
+                    secure=False,
+                    samesite="lax",
+                    max_age=86400
+                )
+                
+                logger.info(f"✅ Legacy admin login successful for user: {username}")
+                return response
+            else:
+                logger.warning(f"❌ Failed login attempt for user: {username}")
+                return templates.TemplateResponse(
+                    "login.html",
+                    {
+                        "request": request,
+                        "error": "Invalid credentials or unauthorized email",
+                        "username": username
+                    }
+                )
     except Exception as e:
         logger.error(f"🔴 Error during login: {str(e)}")
         return templates.TemplateResponse(
@@ -220,4 +250,213 @@ async def update_qa_review(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to update QA review: {str(e)}"
+        )
+
+@router.post("/qa-review/update-with-feedback", response_model=FeedbackResponse)
+async def update_qa_review_with_feedback(
+    request: QAUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(require_admin_auth)
+):
+    """
+    Enhanced QA update that captures feedback on field changes
+    """
+    try:
+        logger.info(f"🔄 Processing enhanced QA update for record ID: {request.record_id} (User: {current_user})")
+        
+        # Fetch the funding opportunity record
+        opportunity = db.query(FundingOpportunity).filter(
+            FundingOpportunity.id == request.record_id
+        ).first()
+        
+        if not opportunity:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Funding opportunity with ID {request.record_id} not found"
+            )
+        
+        # Get original data for feedback comparison
+        original_data = opportunity.json_data or {}
+        
+        # Capture feedback on field changes
+        feedback_count = 0
+        if request.field_updates and original_data:
+            feedback_count = FeedbackService.capture_parsed_data_feedback(
+                db=db,
+                record_id=request.record_id,
+                original_data=original_data,
+                edited_data=request.field_updates,
+                prompt_version=request.prompt_version
+            )
+        
+        # Update the JSON data with new field values
+        if request.field_updates:
+            updated_json_data = original_data.copy()
+            updated_json_data.update(request.field_updates)
+            opportunity.json_data = updated_json_data
+        
+        # Update editable text if provided
+        if request.editable_text is not None:
+            opportunity.editable_text = request.editable_text
+        
+        # Update status if provided
+        if request.status:
+            if request.status in ["raw", "reviewed", "approved", "rejected"]:
+                opportunity.status = StatusEnum(request.status)
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid status: {request.status}"
+                )
+        
+        # Commit changes
+        db.commit()
+        db.refresh(opportunity)
+        
+        logger.info(f"✅ Successfully updated record {request.record_id} with {feedback_count} feedback entries")
+        
+        return FeedbackResponse(
+            success=True,
+            message=f"Successfully updated record with {feedback_count} feedback entries captured",
+            feedback_count=feedback_count
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error in enhanced QA update: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update record: {str(e)}"
+        )
+
+@router.get("/feedback/stats")
+async def get_feedback_statistics(
+    db: Session = Depends(get_db),
+    current_user: str = Depends(require_admin_auth)
+):
+    """
+    Get feedback statistics for analysis
+    """
+    try:
+        stats = FeedbackService.get_feedback_statistics(db)
+        return {
+            "success": True,
+            "data": stats,
+            "message": "Feedback statistics retrieved successfully"
+        }
+    except Exception as e:
+        logger.error(f"❌ Error getting feedback stats: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get feedback statistics: {str(e)}"
+        )
+
+@router.get("/feedback/field/{field_name}")
+async def get_field_feedback(
+    field_name: str,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(require_admin_auth)
+):
+    """
+    Get feedback for a specific field to analyze editing patterns
+    """
+    try:
+        feedback = FeedbackService.get_field_feedback_summary(
+            db=db,
+            field_name=field_name,
+            limit=limit
+        )
+        return {
+            "success": True,
+            "field_name": field_name,
+            "feedback": feedback,
+            "count": len(feedback),
+            "message": f"Retrieved {len(feedback)} feedback entries for field '{field_name}'"
+        }
+    except Exception as e:
+        logger.error(f"❌ Error getting field feedback: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get field feedback: {str(e)}"
+        )
+
+@router.get("/dashboard", response_class=HTMLResponse)
+async def admin_dashboard(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(require_admin_auth)
+):
+    """
+    Main Admin Dashboard - Overview of all admin functions
+    """
+    try:
+        logger.info(f"📊 Loading admin dashboard for user: {current_user}")
+        
+        # Get statistics for dashboard
+        total_opportunities = db.query(FundingOpportunity).count()
+        raw_opportunities = db.query(FundingOpportunity).filter(
+            FundingOpportunity.status == StatusEnum.raw
+        ).count()
+        reviewed_opportunities = db.query(FundingOpportunity).filter(
+            FundingOpportunity.status == StatusEnum.reviewed
+        ).count()
+        approved_opportunities = db.query(FundingOpportunity).filter(
+            FundingOpportunity.status == StatusEnum.approved
+        ).count()
+        
+        # Get recent opportunities
+        recent_opportunities = db.query(FundingOpportunity).order_by(
+            FundingOpportunity.created_at.desc()
+        ).limit(5).all()
+        
+        recent_data = []
+        for opp in recent_opportunities:
+            json_data = opp.json_data or {}
+            recent_data.append({
+                "id": opp.id,
+                "title": json_data.get("title", "Unknown"),
+                "donor": json_data.get("donor", "Unknown"),
+                "status": opp.status.value,
+                "created_at": opp.created_at.strftime("%Y-%m-%d %H:%M")
+            })
+        
+        # Get feedback statistics
+        try:
+            feedback_stats = FeedbackService.get_feedback_statistics(db)
+        except:
+            feedback_stats = {
+                "parsed_data_feedback": {"total_edits": 0, "most_edited_fields": []},
+                "post_edit_feedback": {"total_edits": 0, "most_edited_sections": []}
+            }
+        
+        return templates.TemplateResponse(
+            "admin_dashboard.html",
+            {
+                "request": request,
+                "current_user": current_user,
+                "page_title": "Admin Dashboard",
+                "stats": {
+                    "total_opportunities": total_opportunities,
+                    "raw_opportunities": raw_opportunities,
+                    "reviewed_opportunities": reviewed_opportunities,
+                    "approved_opportunities": approved_opportunities
+                },
+                "recent_opportunities": recent_data,
+                "feedback_stats": feedback_stats,
+                "csrf_token": get_csrf_token(request)
+            }
+        )
+        
+    except HTTPException as e:
+        if e.status_code == 302:
+            return RedirectResponse(url="/admin/login", status_code=302)
+        raise
+    except Exception as e:
+        logger.error(f"🔴 Error in admin dashboard: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to load admin dashboard: {str(e)}"
         ) 

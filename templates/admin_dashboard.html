@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title }} - ReqAgent Admin</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f8f9fa;
+            line-height: 1.6;
+        }
+        
+        .navbar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+        }
+        
+        .navbar-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .navbar-brand {
+            color: white;
+            font-size: 1.5rem;
+            font-weight: bold;
+            text-decoration: none;
+        }
+        
+        .navbar-nav {
+            display: flex;
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            gap: 1rem;
+        }
+        
+        .navbar-nav a {
+            color: white;
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            transition: all 0.2s;
+            font-weight: 500;
+        }
+        
+        .navbar-nav a:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        
+        .navbar-user {
+            color: white;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 2rem;
+        }
+        
+        .header {
+            margin-bottom: 2rem;
+        }
+        
+        .header h1 {
+            color: #333;
+            margin: 0 0 0.5rem 0;
+        }
+        
+        .header p {
+            color: #666;
+            margin: 0;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .stat-card {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            border-left: 4px solid #667eea;
+        }
+        
+        .stat-card.raw { border-left-color: #dc3545; }
+        .stat-card.reviewed { border-left-color: #ffc107; }
+        .stat-card.approved { border-left-color: #28a745; }
+        
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 0.5rem;
+        }
+        
+        .stat-label {
+            color: #666;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .main-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .card h2 {
+            margin: 0 0 1rem 0;
+            color: #333;
+            font-size: 1.25rem;
+        }
+        
+        .admin-functions {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .function-card {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+            transition: transform 0.2s;
+        }
+        
+        .function-card:hover {
+            transform: translateY(-2px);
+        }
+        
+        .function-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+        
+        .function-card h3 {
+            margin: 0 0 0.5rem 0;
+            color: #333;
+        }
+        
+        .function-card p {
+            color: #666;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 0.75rem 1.5rem;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 500;
+            transition: all 0.2s;
+            border: none;
+            cursor: pointer;
+        }
+        
+        .btn:hover {
+            background: #5a6fd8;
+            transform: translateY(-1px);
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+        }
+        
+        .btn-secondary:hover {
+            background: #545b62;
+        }
+        
+        .recent-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .recent-item {
+            padding: 0.75rem 0;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .recent-item:last-child {
+            border-bottom: none;
+        }
+        
+        .recent-title {
+            font-weight: 500;
+            color: #333;
+            margin-bottom: 0.25rem;
+        }
+        
+        .recent-meta {
+            font-size: 0.8rem;
+            color: #666;
+        }
+        
+        .status-badge {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+        
+        .status-raw { background: #f8d7da; color: #721c24; }
+        .status-reviewed { background: #fff3cd; color: #856404; }
+        .status-approved { background: #d4edda; color: #155724; }
+        
+        .todo-section {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .todo-section h2 {
+            color: #856404;
+            margin: 0 0 1rem 0;
+        }
+        
+        .todo-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .todo-item {
+            padding: 0.5rem 0;
+            color: #856404;
+        }
+        
+        .todo-item::before {
+            content: "⚠️ ";
+            margin-right: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar">
+        <div class="navbar-container">
+            <a href="/admin/dashboard" class="navbar-brand">
+                🚀 ReqAgent Admin
+            </a>
+            
+            <ul class="navbar-nav">
+                <li><a href="/admin/qa-review">📋 QA Review</a></li>
+                <li><a href="/admin/proposal-template/start">📄 Template Generator</a></li>
+                <li><a href="#" onclick="alert('Coming Soon!')">📝 Post Publisher</a></li>
+                <li><a href="/admin/feedback/stats">📊 Feedback & Analytics</a></li>
+                <li><a href="#" onclick="alert('Coming Soon!')">⚙️ Settings</a></li>
+            </ul>
+            
+            <div class="navbar-user">
+                <span>👤 {{ current_user }}</span>
+                <a href="/admin/logout" class="btn btn-secondary">Logout</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>{{ page_title }}</h1>
+            <p>Welcome to the ReqAgent administrative interface. Manage funding opportunities, generate proposals, and analyze performance.</p>
+        </div>
+
+        <!-- Statistics -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-number">{{ stats.total_opportunities }}</div>
+                <div class="stat-label">Total Opportunities</div>
+            </div>
+            <div class="stat-card raw">
+                <div class="stat-number">{{ stats.raw_opportunities }}</div>
+                <div class="stat-label">Pending Review</div>
+            </div>
+            <div class="stat-card reviewed">
+                <div class="stat-number">{{ stats.reviewed_opportunities }}</div>
+                <div class="stat-label">Reviewed</div>
+            </div>
+            <div class="stat-card approved">
+                <div class="stat-number">{{ stats.approved_opportunities }}</div>
+                <div class="stat-label">Approved</div>
+            </div>
+        </div>
+
+        <!-- TODO Section -->
+        <div class="todo-section">
+            <h2>🚧 Implementation Status</h2>
+            <ul class="todo-list">
+                <li><strong>✅ QA Review:</strong> Fully implemented with feedback capture</li>
+                <li><strong>✅ Proposal Template Generator:</strong> Fully implemented with .docx generation</li>
+                <li><strong>✅ Blog Post Generator:</strong> Fully implemented with OpenAI integration</li>
+                <li><strong>⚠️ WordPress Publisher:</strong> API ready, UI integration pending</li>
+                <li><strong>⚠️ User Management:</strong> Backend ready, admin UI pending</li>
+                <li><strong>⚠️ Advanced Analytics:</strong> Data collection ready, dashboard pending</li>
+                <li><strong>⚠️ Settings Management:</strong> Configuration system pending</li>
+            </ul>
+        </div>
+
+        <!-- Main Grid -->
+        <div class="main-grid">
+            <!-- Recent Opportunities -->
+            <div class="card">
+                <h2>📋 Recent Opportunities</h2>
+                {% if recent_opportunities %}
+                <ul class="recent-list">
+                    {% for opp in recent_opportunities %}
+                    <li class="recent-item">
+                        <div>
+                            <div class="recent-title">{{ opp.title }}</div>
+                            <div class="recent-meta">{{ opp.donor }} • {{ opp.created_at }}</div>
+                        </div>
+                        <span class="status-badge status-{{ opp.status }}">{{ opp.status }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p>No opportunities found. Parse some funding opportunities to get started.</p>
+                {% endif %}
+            </div>
+
+            <!-- Quick Stats -->
+            <div class="card">
+                <h2>📊 Feedback Summary</h2>
+                <div style="margin-bottom: 1rem;">
+                    <strong>Parsed Data Edits:</strong> {{ feedback_stats.parsed_data_feedback.total_edits }}
+                </div>
+                <div style="margin-bottom: 1rem;">
+                    <strong>Blog Post Edits:</strong> {{ feedback_stats.post_edit_feedback.total_edits }}
+                </div>
+                {% if feedback_stats.parsed_data_feedback.most_edited_fields %}
+                <div>
+                    <strong>Most Edited Fields:</strong>
+                    <ul style="margin: 0.5rem 0; padding-left: 1rem;">
+                        {% for field in feedback_stats.parsed_data_feedback.most_edited_fields[:3] %}
+                        <li>{{ field.field }} ({{ field.edit_count }})</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Admin Functions -->
+        <div class="admin-functions">
+            <div class="function-card">
+                <div class="function-icon">📋</div>
+                <h3>QA Review</h3>
+                <p>Review and approve parsed funding opportunities. Edit data and provide feedback.</p>
+                <a href="/admin/qa-review" class="btn">Review Opportunities</a>
+            </div>
+
+            <div class="function-card">
+                <div class="function-icon">📄</div>
+                <h3>Proposal Templates</h3>
+                <p>Generate customized proposal templates for approved funding opportunities.</p>
+                <a href="/admin/proposal-template/start" class="btn">Create Template</a>
+            </div>
+
+            <div class="function-card">
+                <div class="function-icon">🤖</div>
+                <h3>Blog Post Generator</h3>
+                <p>Generate SEO-optimized blog posts from funding opportunities using AI.</p>
+                <a href="#" onclick="alert('Use API: /api/generate-post')" class="btn">Generate Posts</a>
+            </div>
+
+            <div class="function-card">
+                <div class="function-icon">📝</div>
+                <h3>WordPress Publisher</h3>
+                <p>Publish generated blog posts directly to WordPress as drafts.</p>
+                <a href="#" onclick="alert('Use API: /api/wordpress/publish')" class="btn">Publish Posts</a>
+            </div>
+
+            <div class="function-card">
+                <div class="function-icon">📊</div>
+                <h3>Analytics & Feedback</h3>
+                <p>Analyze QA feedback patterns and system performance metrics.</p>
+                <a href="/admin/feedback/stats" class="btn">View Analytics</a>
+            </div>
+
+            <div class="function-card">
+                <div class="function-icon">⚙️</div>
+                <h3>Settings</h3>
+                <p>Configure system settings, user management, and integrations.</p>
+                <a href="#" onclick="alert('Settings panel coming soon!')" class="btn">Manage Settings</a>
+            </div>
+        </div>
+
+        <!-- Hidden CSRF Token -->
+        <input type="hidden" id="csrf-token" value="{{ csrf_token }}">
+    </div>
+
+    <script>
+        // Add any dashboard-specific JavaScript here
+        console.log('ReqAgent Admin Dashboard loaded');
+        
+        // Example function to handle CSRF token
+        function getCSRFToken() {
+            return document.getElementById('csrf-token').value;
+        }
+        
+        // Example AJAX helper with CSRF protection
+        function secureAjax(url, data, method = 'POST') {
+            return fetch(url, {
+                method: method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': getCSRFToken()
+                },
+                body: JSON.stringify(data)
+            });
+        }
+    </script>
+</body>
+</html> 
