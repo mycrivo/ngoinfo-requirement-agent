@@ -32,8 +32,22 @@ class WordPressPublisher:
             logger.error(f"   WP_APPLICATION_PASSWORD: {'✅ Set' if self.app_password else '❌ Missing'}")
             raise ValueError("WordPress credentials not properly configured. Please set WP_API_URL, WP_USERNAME, and WP_APPLICATION_PASSWORD environment variables.")
         
+        # Log the original URL before processing
+        original_url = self.base_url
+        logger.info(f"🔧 WP_API_URL CONFIGURATION:")
+        logger.info(f"   ORIGINAL: {original_url}")
+        
         # Remove trailing slash from base URL
         self.base_url = self.base_url.rstrip('/') if self.base_url else ''
+        logger.info(f"   AFTER_CLEANUP: {self.base_url}")
+        
+        # Check URL format and provide guidance
+        if self.base_url.endswith('/wp-json/wp/v2'):
+            logger.info(f"✅ DETECTED: Full API URL format (includes /wp-json/wp/v2)")
+        elif 'wp-json' in self.base_url:
+            logger.warning(f"⚠️ DETECTED: Partial API URL (contains wp-json but not full path)")
+        else:
+            logger.info(f"📍 DETECTED: Base domain only (will append /wp-json/wp/v2)")
         
         # Setup authentication (cast to satisfy type checker - we know they're not None)
         self.auth = HTTPBasicAuth(str(self.username), str(self.app_password))
@@ -45,7 +59,8 @@ class WordPressPublisher:
             'User-Agent': 'ReqAgent/1.0 WordPress Publisher'
         }
         
-        logger.info(f"📡 WordPress Publisher initialized - API URL: {self.base_url}")
+        logger.info(f"📡 WordPress Publisher initialized - Final API URL: {self.base_url}")
+        logger.info(f"🎯 Expected POST URL for posts: {self.base_url}/wp-json/wp/v2/posts" if not self.base_url.endswith('/wp-json/wp/v2') else f"{self.base_url}/posts")
     
     def validate_content(self, content: str) -> Dict[str, Any]:
         """Validate content before sending to WordPress"""
@@ -80,16 +95,44 @@ class WordPressPublisher:
     
     def _make_request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
         """Make authenticated request to WordPress REST API with comprehensive logging"""
-        url = f"{self.base_url}/wp-json/wp/v2/{endpoint}"
+        
+        # 🔧 FIXED: Smart URL construction to handle different WP_API_URL formats
+        if not self.base_url:
+            raise ValueError("WordPress base URL is not configured")
+            
+        if self.base_url.endswith('/wp-json/wp/v2'):
+            # Base URL already includes the REST API path
+            url = f"{self.base_url}/{endpoint}"
+        elif '/wp-json/wp/v2' in self.base_url:
+            # Base URL includes wp-json/wp/v2 but not at the end
+            logger.warning(f"⚠️ WP_API_URL contains wp-json/wp/v2 but not at end: {self.base_url}")
+            url = f"{self.base_url}/{endpoint}"
+        else:
+            # Base URL is just the domain, append full REST API path
+            url = f"{self.base_url}/wp-json/wp/v2/{endpoint}"
+        
         request_id = datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:20]
         
-        # 🔍 ENHANCED DEBUGGING: Log full WordPress request details
+        # 🔍 ENHANCED DEBUGGING: Log URL construction and full request details
+        logger.info(f"🔧 URL CONSTRUCTION:")
+        logger.info(f"   BASE_URL = {self.base_url}")
+        logger.info(f"   ENDPOINT = {endpoint}")
+        logger.info(f"   ENDS_WITH_API_PATH = {self.base_url.endswith('/wp-json/wp/v2')}")
+        logger.info(f"   CONTAINS_API_PATH = {'/wp-json/wp/v2' in self.base_url}")
+        logger.info(f"   FINAL_URL = {url}")
+        
+        # Expected URL validation
+        expected_pattern = "https://ngoinfo.org/wp-json/wp/v2/"
+        if expected_pattern in url:
+            logger.info(f"✅ URL FORMAT CORRECT: Contains expected pattern {expected_pattern}")
+        else:
+            logger.warning(f"⚠️ URL FORMAT ISSUE: Does not contain expected pattern {expected_pattern}")
+        
         logger.info(f"🔍 WP PUBLISH: URL = {url}")
         logger.info(f"🔍 WP PUBLISH: METHOD = {method}")
         logger.info(f"🔍 WP PUBLISH: HEADERS = {json.dumps(dict(self.headers), indent=2)}")
         logger.info(f"🔍 WP PUBLISH: BASE_URL = {self.base_url}")
         logger.info(f"🔍 WP PUBLISH: ENDPOINT = {endpoint}")
-        logger.info(f"🔍 WP PUBLISH: FULL_URL_CONSTRUCTION = {self.base_url} + /wp-json/wp/v2/ + {endpoint}")
         
         # Log authentication details (without exposing credentials)
         logger.info(f"🔍 WP PUBLISH: AUTH_USERNAME = {self.username}")
@@ -256,6 +299,7 @@ class WordPressPublisher:
         
         try:
             logger.info(f"🏷️ Looking for default category: {default_category_name} (slug: {default_category_slug})")
+            logger.info(f"🔍 CATEGORY LOOKUP: Will make GET request to categories endpoint")
             
             # Search for category by slug (more reliable than name)
             response = self._make_request('GET', 'categories', params={'slug': default_category_slug})
