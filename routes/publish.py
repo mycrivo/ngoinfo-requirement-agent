@@ -105,8 +105,15 @@ class WordPressPublisher:
             url = f"{self.base_url}/{endpoint}"
         elif '/wp-json/wp/v2' in self.base_url:
             # Base URL includes wp-json/wp/v2 but not at the end
-            logger.warning(f"⚠️ WP_API_URL contains wp-json/wp/v2 but not at end: {self.base_url}")
-            url = f"{self.base_url}/{endpoint}"
+            # Check if the endpoint is already at the end of the URL to avoid duplication
+            if self.base_url.endswith(f'/{endpoint}'):
+                # Endpoint already present at the end, use as-is
+                url = self.base_url
+                logger.info(f"✅ WP_API_URL already ends with endpoint '{endpoint}', using as-is")
+            else:
+                # Endpoint not at the end, append it
+                url = f"{self.base_url}/{endpoint}"
+                logger.info(f"🔧 WP_API_URL contains wp-json/wp/v2 but not at end, appending endpoint '{endpoint}'")
         else:
             # Base URL is just the domain, append full REST API path
             url = f"{self.base_url}/wp-json/wp/v2/{endpoint}"
