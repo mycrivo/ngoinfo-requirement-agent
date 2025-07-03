@@ -26,10 +26,23 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 # Create router
 router = APIRouter(prefix="/api", tags=["blog-generation"])
 
-def sanitize_input_string(input_string: str) -> str:
-    """Sanitize input strings to remove invalid control characters before sending to OpenAI"""
+def sanitize_input_string(input_string) -> str:
+    """Sanitize input strings to remove invalid control characters before sending to OpenAI
+    Handles both strings and lists - converts lists to joined strings"""
     if not input_string:
         return ""
+    
+    # Handle lists by joining them into a string
+    if isinstance(input_string, list):
+        # Filter out empty/None items and convert to strings
+        valid_items = [str(item).strip() for item in input_string if item]
+        if not valid_items:
+            return ""
+        # Join list items with appropriate separator
+        input_string = ". ".join(valid_items)
+    
+    # Convert to string if it's not already (handles other types)
+    input_string = str(input_string)
     
     # Remove control characters (except newlines and tabs)
     sanitized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", input_string)
@@ -253,7 +266,11 @@ Return only clean HTML with properly closed tags. Do not include markdown, backt
             min_words, max_words = self.get_word_count_range(length)
             max_tokens = self.estimate_max_tokens(max_words)
             
-            logger.info(f"🤖 Generating {length} blog post ({min_words}-{max_words} words, max {max_tokens} tokens) for: {funding_data.get('title', 'Unknown')}")
+            # Safely get title for logging, handling lists
+            title_for_log = funding_data.get('title', 'Unknown')
+            if isinstance(title_for_log, list):
+                title_for_log = ' | '.join(str(t) for t in title_for_log if t) or 'Unknown'
+            logger.info(f"🤖 Generating {length} blog post ({min_words}-{max_words} words, max {max_tokens} tokens) for: {title_for_log}")
             
             # Create the enhanced prompt
             prompt = self.create_enhanced_blog_prompt(
@@ -351,7 +368,11 @@ CRITICAL: The response MUST be at least {min_words} words. Expand with relevant,
             
             # Extract title from first h1 or h2
             title_element = soup.find(['h1', 'h2'])
-            post_title = title_element.get_text().strip() if title_element else funding_data.get('title', 'Funding Opportunity')
+            # Safely get title fallback, handling lists  
+            title_fallback = funding_data.get('title', 'Funding Opportunity')
+            if isinstance(title_fallback, list):
+                title_fallback = ' - '.join(str(t) for t in title_fallback if t) or 'Funding Opportunity'
+            post_title = title_element.get_text().strip() if title_element else title_fallback
             
             # Generate meta title (shorter version)
             meta_title = post_title[:57] + "..." if len(post_title) > 60 else post_title
@@ -414,7 +435,13 @@ CRITICAL: The response MUST be at least {min_words} words. Expand with relevant,
         # Add from location
         location = funding_data.get('location', '')
         if location and location != 'Unknown':
-            tags.append(location.lower().replace(' ', '-'))
+            # Handle location as list or string
+            if isinstance(location, list):
+                for loc in location:
+                    if loc:
+                        tags.append(str(loc).lower().replace(' ', '-'))
+            else:
+                tags.append(str(location).lower().replace(' ', '-'))
         
         # Add standard funding tags
         tags.extend(['funding', 'grants', 'nonprofit'])
@@ -444,12 +471,20 @@ CRITICAL: The response MUST be at least {min_words} words. Expand with relevant,
         
         # Add location-based categories
         location = funding_data.get('location', '')
-        if 'UK' in location or 'United Kingdom' in location:
-            categories.append('UK Opportunities')
-        elif 'Europe' in location:
-            categories.append('European Grants')
-        elif 'Global' in location or 'International' in location:
-            categories.append('International Funding')
+        if location:
+            # Handle location as list or string
+            location_text = ""
+            if isinstance(location, list):
+                location_text = " ".join(str(loc) for loc in location if loc)
+            else:
+                location_text = str(location)
+            
+            if 'UK' in location_text or 'United Kingdom' in location_text:
+                categories.append('UK Opportunities')
+            elif 'Europe' in location_text:
+                categories.append('European Grants')
+            elif 'Global' in location_text or 'International' in location_text:
+                categories.append('International Funding')
         
         # Default category
         if not categories:
@@ -611,7 +646,12 @@ async def generate_post(
         
         # Extract funding data
         funding_data = opportunity.json_data or {}
-        opportunity_url = funding_data.get('opportunity_url', opportunity.source_url)
+        # Safely get opportunity URL, handling lists
+        opportunity_url_raw = funding_data.get('opportunity_url', opportunity.source_url)
+        if isinstance(opportunity_url_raw, list):
+            opportunity_url = opportunity_url_raw[0] if opportunity_url_raw else opportunity.source_url
+        else:
+            opportunity_url = opportunity_url_raw
         
         # Initialize blog generator
         generator = BlogPostGenerator()
@@ -656,7 +696,11 @@ async def generate_post(
             if missing_keywords:
                 quality_indicators.append(f"Missing keywords: {', '.join(missing_keywords[:3])}")
         
-        success_message = f"Successfully generated blog post for '{funding_data.get('title', 'Unknown Opportunity')}'. " + " | ".join(quality_indicators)
+        # Safely get title for success message, handling lists
+        title_for_message = funding_data.get('title', 'Unknown Opportunity')
+        if isinstance(title_for_message, list):
+            title_for_message = ' | '.join(str(t) for t in title_for_message if t) or 'Unknown Opportunity'
+        success_message = f"Successfully generated blog post for '{title_for_message}'. " + " | ".join(quality_indicators)
         
         # 💾 SAVE TO DATABASE: Create or update blog post in database
         try:
