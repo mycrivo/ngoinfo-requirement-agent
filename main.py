@@ -18,15 +18,31 @@ from models import Base
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Re-enable DB table creation with error handling for local development
-try:
-    Base.metadata.create_all(bind=engine)
-    logger.info("✅ Database tables created successfully")
+# Import migration utility
+from utils.migrate import run_migrations
+
+# Run database migrations on startup
+logger.info("🔄 Running database migrations...")
+migration_success = run_migrations()
+
+if migration_success:
+    logger.info("✅ Database migrations completed successfully")
     db_available = True
-except Exception as e:
-    logger.warning(f"⚠️ Database not available (likely local development): {str(e)}")
-    logger.warning("🚀 Server will start without database connection - suitable for Railway deployment")
-    db_available = False
+else:
+    logger.error("❌ Database migrations failed")
+    logger.error("🚨 Application cannot start without successful database migration")
+    logger.error("💡 Check your database connection and migration files")
+    exit(1)
+
+# Fallback table creation for local development only
+if os.getenv("DEV_CREATE_TABLES", "false").lower() == "true":
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("✅ Development fallback: Database tables created successfully")
+    except Exception as e:
+        logger.warning(f"⚠️ Development fallback table creation failed: {str(e)}")
+else:
+    logger.info("🚀 Production mode: Skipping fallback table creation (using Alembic migrations)")
 
 # Initialize FastAPI app
 app = FastAPI(

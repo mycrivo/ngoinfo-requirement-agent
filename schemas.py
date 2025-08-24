@@ -1,7 +1,37 @@
 from pydantic import BaseModel, HttpUrl
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 from models import StatusEnum
+
+# Variant-related schemas
+class ApplicationRound(BaseModel):
+    round_name: str
+    apply_open_month: Optional[str] = None
+    apply_open_year_estimate: Optional[int] = None
+    apply_close_date: Optional[datetime] = None
+
+class ApplicationWindow(BaseModel):
+    open_date: Optional[datetime] = None
+    close_date: Optional[datetime] = None
+    timezone: Optional[str] = None
+    application_rounds: Optional[List[ApplicationRound]] = []
+
+class DeliveryPeriod(BaseModel):
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+
+class OpportunityVariant(BaseModel):
+    variant_title: str
+    grant_min: Optional[float] = None
+    grant_max: Optional[float] = None
+    currency: Optional[str] = None
+    funding_type: Optional[str] = None
+    application_window: Optional[ApplicationWindow] = None
+    application_rounds: Optional[List[ApplicationRound]] = []
+    delivery_period: Optional[DeliveryPeriod] = None
+    application_link: Optional[str] = None
+    notes: Optional[str] = None
+    is_primary: Optional[bool] = False
 
 class ParseRequirementRequest(BaseModel):
     url: HttpUrl
@@ -24,6 +54,7 @@ class FundingOpportunityResponse(BaseModel):
     json_data: Optional[Dict[Any, Any]] = None
     editable_text: Optional[str] = None
     status: StatusEnum
+    variants: List[OpportunityVariant] = []
     created_at: datetime
     
     class Config:

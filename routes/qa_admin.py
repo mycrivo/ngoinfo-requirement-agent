@@ -128,6 +128,7 @@ async def qa_review_dashboard(
                 "themes": json_data.get("themes", []),
                 "editable_text": opp.editable_text or "",
                 "source_url": opp.source_url,
+                "variants": opp.variants or [],
                 "created_at": opp.created_at.strftime("%Y-%m-%d %H:%M:%S"),
                 "confidence_score": json_data.get("_confidence_score", 0),
                 "extraction_warning": json_data.get("_extraction_warning", ""),

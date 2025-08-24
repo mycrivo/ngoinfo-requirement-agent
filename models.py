@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Text, JSON, DateTime, Enum, Boolean
 from sqlalchemy.sql import func
+from sqlalchemy.dialects.postgresql import JSONB
 import enum
 from db import Base
 
@@ -17,6 +18,7 @@ class FundingOpportunity(Base):
     json_data = Column(JSON, nullable=True)
     editable_text = Column(Text, nullable=True)
     status = Column(Enum(StatusEnum), default=StatusEnum.raw, nullable=False)
+    variants = Column(JSONB, nullable=False, default=list, server_default='[]')
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 class ParsedDataFeedback(Base):
