@@ -441,8 +441,8 @@ class ProposalTemplateGenerator:
             for i, section in enumerate(content_model.sections, 1):
                 story.append(Paragraph(f"{i}. {section.heading}", heading_style))
                 story.append(Paragraph(f"[INSTRUCTION] {section.instruction}", styles['Normal']))
-                story.append(Paragraph(section.placeholder, styles['Normal'])
-                story.append(Spacer(1, 12)
+                story.append(Paragraph(section.placeholder, styles['Normal']))
+                story.append(Spacer(1, 12))
             
             # Footer
             story.append(Spacer(1, 30))
