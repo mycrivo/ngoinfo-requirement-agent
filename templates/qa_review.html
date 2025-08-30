@@ -100,6 +100,56 @@
             margin-top: 8px;
             font-size: 0.85em;
         }
+        
+        /* Variants Panel Styles */
+        .variants-panel {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 15px;
+            margin-top: 10px;
+        }
+        .variants-header {
+            margin-bottom: 15px;
+            color: #495057;
+            font-size: 0.95em;
+        }
+        .variant-card {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-left: 3px solid #6c757d;
+        }
+        .variant-card.primary-variant {
+            border-left-color: #28a745;
+            background: #f8fff9;
+        }
+        .variant-title {
+            font-weight: bold;
+            color: #495057;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .primary-badge {
+            background: #28a745;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 0.75em;
+            font-weight: normal;
+        }
+        .variant-field {
+            margin-bottom: 6px;
+            font-size: 0.9em;
+            color: #6c757d;
+        }
+        .variant-field strong {
+            color: #495057;
+        }
         .actions {
             margin-top: 15px;
             padding-top: 15px;
@@ -141,6 +191,57 @@
             border-color: #667eea;
             box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
         }
+        
+        /* Template Status Styles */
+        .template-status {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+        
+        .template-info h4 {
+            margin: 0 0 10px 0;
+            color: #495057;
+        }
+        
+        .template-details {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .template-status-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: bold;
+            background: #e9ecef;
+            color: #495057;
+        }
+        
+        .template-status-badge.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .template-status-badge.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .template-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .btn-sm {
+            padding: 4px 8px;
+            font-size: 0.8em;
+        }
     </style>
 </head>
 <body>
@@ -153,6 +254,9 @@
             <div>
                 {% if current_user %}
                 <span style="margin-right: 15px;">Welcome, {{ current_user }}</span>
+                <a href="/admin/logs" style="color: white; text-decoration: none; background: rgba(255,255,255,0.2); padding: 8px 16px; border-radius: 4px; margin-right: 10px;">
+                    📊 Logs
+                </a>
                 <a href="/admin/logout" style="color: white; text-decoration: none; background: rgba(255,255,255,0.2); padding: 8px 16px; border-radius: 4px;">
                     🔓 Logout
                 </a>
@@ -209,6 +313,49 @@
                 </div>
             </div>
 
+            {% if opp.variants and opp.variants|length > 0 %}
+            <div class="field-row">
+                <div class="field-label">Variants:</div>
+                <div class="field-value">
+                    <div class="variants-panel">
+                        <div class="variants-header">
+                            <strong>📋 {{ opp.variants|length }} Variant{{ 's' if opp.variants|length != 1 else '' }}</strong>
+                        </div>
+                        {% for variant in opp.variants %}
+                        <div class="variant-card {% if variant.is_primary %}primary-variant{% endif %}">
+                            <div class="variant-title">
+                                {{ variant.title }}
+                                {% if variant.is_primary %}
+                                    <span class="primary-badge">⭐ Primary</span>
+                                {% endif %}
+                            </div>
+                            {% if variant.grant_range %}
+                            <div class="variant-field">
+                                <strong>Grant:</strong> {{ variant.grant_range }}
+                            </div>
+                            {% endif %}
+                            {% if variant.application_window %}
+                            <div class="variant-field">
+                                <strong>Application:</strong> {{ variant.application_window }}
+                            </div>
+                            {% endif %}
+                            {% if variant.delivery_period %}
+                            <div class="variant-field">
+                                <strong>Delivery:</strong> {{ variant.delivery_period }}
+                            </div>
+                            {% endif %}
+                            {% if variant.application_link %}
+                            <div class="variant-field">
+                                <strong>Link:</strong> <a href="{{ variant.application_link }}" target="_blank">{{ variant.application_link }}</a>
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
             <div class="field-row">
                 <div class="field-label">Source URL:</div>
                 <div class="field-value">
@@ -238,14 +385,32 @@
                     </div>
                 </div>
 
-                <div class="actions">
-                    <button type="submit" class="btn btn-success">
-                        ✅ Mark as Reviewed
-                    </button>
-                    <button type="button" class="btn btn-primary" onclick="viewDetails({{ opp.id }})">
-                        👁️ View Full Details
-                    </button>
+                            <div class="actions">
+                <button type="submit" class="btn btn-success">
+                    ✅ Mark as Reviewed
+                </button>
+                <button type="button" class="btn btn-primary" onclick="viewDetails({{ opp.id }})">
+                    👁️ View Full Details
+                </button>
+                <button type="button" class="btn btn-info" onclick="generateTemplate({{ opp.id }})">
+                    📄 Generate Template
+                </button>
+            </div>
+            
+            <!-- Template Status Section -->
+            <div class="template-status" id="template-status-{{ opp.id }}" style="display: none;">
+                <div class="template-info">
+                    <h4>📋 Proposal Template</h4>
+                    <div class="template-details">
+                        <div class="template-status-badge" id="status-badge-{{ opp.id }}">⏳ Generating...</div>
+                        <div class="template-actions" id="template-actions-{{ opp.id }}" style="display: none;">
+                            <a href="#" class="btn btn-sm btn-success" id="docx-download-{{ opp.id }}">📥 Download DOCX</a>
+                            <a href="#" class="btn btn-sm btn-info" id="pdf-download-{{ opp.id }}" style="display: none;">📥 Download PDF</a>
+                            <button type="button" class="btn btn-sm btn-warning" onclick="regenerateTemplate({{ opp.id }})">🔄 Regenerate</button>
+                        </div>
+                    </div>
                 </div>
+            </div>
             </form>
         </div>
         {% endfor %}
@@ -260,6 +425,148 @@
         function viewDetails(id) {
             // Open the API endpoint to view full opportunity details
             window.open(`/api/requirement/opportunities/${id}`, '_blank');
+        }
+        
+        async function generateTemplate(opportunityId) {
+            try {
+                // Show template status section
+                const statusSection = document.getElementById(`template-status-${opportunityId}`);
+                const statusBadge = document.getElementById(`status-badge-${opportunityId}`);
+                const actionsSection = document.getElementById(`template-actions-${opportunityId}`);
+                
+                statusSection.style.display = 'block';
+                statusBadge.textContent = '⏳ Generating...';
+                actionsSection.style.display = 'none';
+                
+                // Default sections for proposal template
+                const defaultSections = [
+                    { heading: "Executive Summary", instruction: "Provide a concise overview of your proposal" },
+                    { heading: "Organization Background", instruction: "Describe your organization and its capabilities" },
+                    { heading: "Problem Statement", instruction: "Explain the problem or need your project addresses" },
+                    { heading: "Objectives & Outcomes", instruction: "Define your project objectives and expected outcomes" },
+                    { heading: "Activities & Workplan", instruction: "Detail the activities and timeline for your project" },
+                    { heading: "Monitoring & Evaluation", instruction: "Explain how you will monitor progress and evaluate success" },
+                    { heading: "Budget Summary", instruction: "Provide a summary of your project budget" },
+                    { heading: "Sustainability & Risk", instruction: "Address project sustainability and risk mitigation" }
+                ];
+                
+                // Call template generation API
+                const response = await fetch('/api/templates/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        record_id: opportunityId,
+                        sections: defaultSections,
+                        funder_notes: null
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Update status
+                    statusBadge.textContent = `✅ ${result.status}`;
+                    statusBadge.className = 'template-status-badge success';
+                    
+                    // Update download links
+                    const docxLink = document.getElementById(`docx-download-${opportunityId}`);
+                    const pdfLink = document.getElementById(`pdf-download-${opportunityId}`);
+                    
+                    docxLink.href = result.docx_url;
+                    docxLink.style.display = 'inline-block';
+                    
+                    if (result.pdf_url) {
+                        pdfLink.href = result.pdf_url;
+                        pdfLink.style.display = 'inline-block';
+                    }
+                    
+                    // Show actions
+                    actionsSection.style.display = 'block';
+                    
+                    console.log('Template generated successfully:', result);
+                } else {
+                    throw new Error(result.message || 'Template generation failed');
+                }
+                
+            } catch (error) {
+                console.error('Template generation error:', error);
+                
+                const statusBadge = document.getElementById(`status-badge-${opportunityId}`);
+                statusBadge.textContent = '❌ Failed';
+                statusBadge.className = 'template-status-badge error';
+                
+                // Show error message
+                alert(`Template generation failed: ${error.message}`);
+            }
+        }
+        
+        async function regenerateTemplate(opportunityId) {
+            try {
+                // Get template ID from the current template
+                const statusSection = document.getElementById(`template-status-${opportunityId}`);
+                const statusBadge = document.getElementById(`status-badge-${opportunityId}`);
+                const actionsSection = document.getElementById(`template-actions-${opportunityId}`);
+                
+                statusBadge.textContent = '🔄 Regenerating...';
+                actionsSection.style.display = 'none';
+                
+                // Call regeneration API
+                const response = await fetch(`/api/templates/${opportunityId}/regenerate`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Update status
+                    statusBadge.textContent = '✅ Ready';
+                    statusBadge.className = 'template-status-badge success';
+                    
+                    // Update download links for new template
+                    const docxLink = document.getElementById(`docx-download-${opportunityId}`);
+                    const pdfLink = document.getElementById(`pdf-download-${opportunityId}`);
+                    
+                    docxLink.href = `/api/templates/${result.new_template_id}/download?format=docx`;
+                    docxLink.style.display = 'inline-block';
+                    
+                    // Check if PDF is available
+                    const pdfResponse = await fetch(`/api/templates/${result.new_template_id}/download?format=pdf`);
+                    if (pdfResponse.ok) {
+                        pdfLink.href = `/api/templates/${result.new_template_id}/download?format=pdf`;
+                        pdfLink.style.display = 'inline-block';
+                    }
+                    
+                    // Show actions
+                    actionsSection.style.display = 'block';
+                    
+                    console.log('Template regenerated successfully:', result);
+                } else {
+                    throw new Error(result.message || 'Template regeneration failed');
+                }
+                
+            } catch (error) {
+                console.error('Template regeneration error:', error);
+                
+                const statusBadge = document.getElementById(`status-badge-${opportunityId}`);
+                statusBadge.textContent = '❌ Failed';
+                statusBadge.className = 'template-status-badge error';
+                
+                // Show error message
+                alert(`Template regeneration failed: ${error.message}`);
+            }
         }
     </script>
 </body>

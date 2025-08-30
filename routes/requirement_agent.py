@@ -18,6 +18,7 @@ from schemas import (
 
 # Enhanced parser import
 from utils.openai_parser import parse_funding_opportunity_from_url
+from utils.variant_utils import apply_primary_to_top_level
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -148,6 +149,31 @@ def generate_blog_post(opportunity: dict) -> str:
     
     return markdown_content
 
+def serialize_opportunity_with_variants(opportunity: FundingOpportunity) -> FundingOpportunityResponse:
+    """
+    Serialize a FundingOpportunity model to FundingOpportunityResponse with variant mapping.
+    
+    This function ensures that when variants exist, the top-level fields are derived
+    from the primary variant for backward compatibility.
+    """
+    # Convert to dict first
+    opportunity_dict = {
+        "id": opportunity.id,
+        "source_url": opportunity.source_url,
+        "json_data": opportunity.json_data,
+        "editable_text": opportunity.editable_text,
+        "status": opportunity.status,
+        "variants": opportunity.variants or [],
+        "created_at": opportunity.created_at
+    }
+    
+    # Apply primary variant mapping if variants exist
+    if opportunity.variants:
+        opportunity_dict = apply_primary_to_top_level(opportunity_dict)
+    
+    # Create response model
+    return FundingOpportunityResponse(**opportunity_dict)
+
 # Create router
 router = APIRouter(prefix="/api", tags=["requirement-agent"])
 
@@ -214,9 +240,9 @@ async def parse_requirement(
                 success=True,
                 message="This funding opportunity already exists in the database. You can re-parse it to update the data.",
                 already_exists=True,
-                existing_entry=FundingOpportunityResponse.from_orm(existing_opportunity),
+                existing_entry=serialize_opportunity_with_variants(existing_opportunity),
                 existing_extracted_data=existing_extracted_data,
-                data=FundingOpportunityResponse.from_orm(existing_opportunity),  # For backward compatibility
+                data=serialize_opportunity_with_variants(existing_opportunity),  # For backward compatibility
                 extracted_data=existing_extracted_data  # For backward compatibility
             )
         
@@ -228,7 +254,7 @@ async def parse_requirement(
             logger.info(f"🔄 Force refresh requested for URL: {url_str} (ID: {existing_opportunity.id}) - re-parsing and updating")
             
             # Store existing data for comparison
-            existing_entry_for_comparison = FundingOpportunityResponse.from_orm(existing_opportunity)
+            existing_entry_for_comparison = serialize_opportunity_with_variants(existing_opportunity)
             
             # Convert existing JSON data to FundingData for comparison
             if existing_opportunity.json_data:
@@ -347,9 +373,9 @@ async def parse_requirement(
                 already_exists=False,  # False because we successfully re-parsed
                 existing_entry=existing_entry_for_comparison,
                 existing_extracted_data=existing_extracted_for_comparison,
-                new_entry=FundingOpportunityResponse.from_orm(funding_opportunity),
+                new_entry=serialize_opportunity_with_variants(funding_opportunity),
                 new_extracted_data=extracted_data,
-                data=FundingOpportunityResponse.from_orm(funding_opportunity),  # For backward compatibility
+                data=serialize_opportunity_with_variants(funding_opportunity),  # For backward compatibility
                 extracted_data=extracted_data  # For backward compatibility
             )
         else:
@@ -358,7 +384,7 @@ async def parse_requirement(
                 success=True,
                 message=message,
                 already_exists=False,
-                data=FundingOpportunityResponse.from_orm(funding_opportunity),
+                data=serialize_opportunity_with_variants(funding_opportunity),
                 extracted_data=extracted_data
             )
         
@@ -464,7 +490,7 @@ async def get_funding_opportunities(
         opportunities = query.offset(skip).limit(limit).all()
         logger.info(f"📋 Retrieved {len(opportunities)} funding opportunities (skip={skip}, limit={limit})")
         
-        return [FundingOpportunityResponse.from_orm(opp) for opp in opportunities]
+        return [serialize_opportunity_with_variants(opp) for opp in opportunities]
         
     except HTTPException:
         raise
@@ -495,7 +521,7 @@ async def get_funding_opportunity(
             )
         
         logger.info(f"📋 Retrieved funding opportunity ID: {opportunity_id}")
-        return FundingOpportunityResponse.from_orm(opportunity)
+        return serialize_opportunity_with_variants(opportunity)
         
     except HTTPException:
         raise
@@ -550,7 +576,7 @@ async def update_funding_opportunity(
         db.refresh(opportunity)
         
         logger.info(f"✅ Successfully updated funding opportunity {opportunity_id}")
-        return FundingOpportunityResponse.from_orm(opportunity)
+        return serialize_opportunity_with_variants(opportunity)
         
     except HTTPException:
         raise

@@ -18,6 +18,7 @@ from utils.auth import (
     verify_csrf_token
 )
 from utils.feedback_service import FeedbackService
+from utils.migrate import run_migrations, check_migration_status
 from schemas import QAUpdateRequest, FeedbackResponse
 
 # Set up logging
@@ -96,6 +97,55 @@ async def logout(request: Request):
     logger.info("🔓 Admin logout successful")
     return response
 
+@router.get("/migrations", response_class=HTMLResponse)
+@require_login
+async def migration_dashboard(request: Request):
+    """
+    Migration management dashboard - shows current status and allows retry
+    """
+    try:
+        # Get current migration status
+        status = check_migration_status()
+        
+        return templates.TemplateResponse(
+            "migrations.html",
+            {
+                "request": request,
+                "status": status,
+                "csrf_token": get_csrf_token(request)
+            }
+        )
+    except Exception as e:
+        logger.error(f"🔴 Error loading migration dashboard: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to load migration status")
+
+@router.post("/migrations/retry")
+@require_login
+async def retry_migrations(request: Request):
+    """
+    Retry failed migrations
+    """
+    try:
+        # Verify CSRF token
+        if not verify_csrf_token(request):
+            raise HTTPException(status_code=400, detail="Invalid CSRF token")
+        
+        logger.info("🔄 Admin requested migration retry")
+        
+        # Run migrations
+        success = run_migrations()
+        
+        if success:
+            logger.info("✅ Migration retry successful")
+            return {"success": True, "message": "Migrations completed successfully"}
+        else:
+            logger.error("❌ Migration retry failed")
+            return {"success": False, "message": "Migration retry failed"}
+            
+    except Exception as e:
+        logger.error(f"🔴 Error during migration retry: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Migration retry failed: {str(e)}")
+
 @router.get("/qa-review", response_class=HTMLResponse)
 async def qa_review_dashboard(
     request: Request,
@@ -128,6 +178,7 @@ async def qa_review_dashboard(
                 "themes": json_data.get("themes", []),
                 "editable_text": opp.editable_text or "",
                 "source_url": opp.source_url,
+                "variants": opp.variants or [],
                 "created_at": opp.created_at.strftime("%Y-%m-%d %H:%M:%S"),
                 "confidence_score": json_data.get("_confidence_score", 0),
                 "extraction_warning": json_data.get("_extraction_warning", ""),

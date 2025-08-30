@@ -1,5 +1,7 @@
-from sqlalchemy import Column, Integer, String, Text, JSON, DateTime, Enum, Boolean
+from sqlalchemy import Column, Integer, String, Text, JSON, DateTime, Enum, Boolean, ForeignKey
 from sqlalchemy.sql import func
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import relationship
 import enum
 from db import Base
 
@@ -9,6 +11,38 @@ class StatusEnum(enum.Enum):
     approved = "approved"
     rejected = "rejected"
 
+class TemplateStatusEnum(enum.Enum):
+    ready = "ready"
+    failed = "failed"
+    pending = "pending"
+
+class DocumentSourceEnum(enum.Enum):
+    pdf = "pdf"
+    url = "url"
+    upload = "upload"
+
+class SourceTypeEnum(enum.Enum):
+    crawler = "crawler"
+    api = "api"
+
+class OCRStatusEnum(enum.Enum):
+    not_needed = "not_needed"
+    pending = "pending"
+    done = "done"
+    failed = "failed"
+
+class SecurityEvent(Base):
+    __tablename__ = "security_events"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    event_type = Column(String(50), nullable=False, index=True)  # login_success, login_failure, rate_limit, forbidden
+    user_email = Column(String(255), nullable=True, index=True)
+    ip_hashed = Column(String(64), nullable=False, index=True)
+    role = Column(String(50), nullable=True, index=True)
+    details = Column(Text, nullable=True)
+    severity = Column(String(20), nullable=False, default="info")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
 class FundingOpportunity(Base):
     __tablename__ = "funding_opportunities"
     
@@ -17,6 +51,7 @@ class FundingOpportunity(Base):
     json_data = Column(JSON, nullable=True)
     editable_text = Column(Text, nullable=True)
     status = Column(Enum(StatusEnum), default=StatusEnum.raw, nullable=False)
+    variants = Column(JSONB, nullable=False, default=list, server_default='[]')
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 class ParsedDataFeedback(Base):
@@ -49,9 +84,12 @@ class AdminUser(Base):
     username = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
     full_name = Column(String, nullable=True)
+    role = Column(String, default="qa", nullable=False, index=True)  # admin, qa, editor
     is_active = Column(Boolean, default=True, nullable=False)
     is_superuser = Column(Boolean, default=False, nullable=False)
     last_login = Column(DateTime(timezone=True), nullable=True)
+    failed_login_attempts = Column(Integer, default=0, nullable=False)
+    locked_until = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -76,4 +114,61 @@ class BlogPost(Base):
     wp_post_id = Column(Integer, nullable=True)  # WordPress post ID if published
     wp_post_url = Column(String, nullable=True)  # WordPress post URL if published
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False) 
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+class ProposalTemplate(Base):
+    __tablename__ = "proposal_templates"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    funding_opportunity_id = Column(Integer, ForeignKey("funding_opportunities.id", ondelete="CASCADE"), nullable=False, index=True)
+    docx_path = Column(Text, nullable=True)
+    pdf_path = Column(Text, nullable=True)
+    status = Column(Enum(TemplateStatusEnum), default=TemplateStatusEnum.pending, nullable=False)
+    notes = Column(Text, nullable=True)
+    hash = Column(Text, nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    # Relationships
+    funding_opportunity = relationship("FundingOpportunity", backref="proposal_templates")
+
+class Document(Base):
+    __tablename__ = "documents"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    funding_opportunity_id = Column(Integer, ForeignKey("funding_opportunities.id", ondelete="CASCADE"), nullable=True, index=True)
+    source = Column(Enum(DocumentSourceEnum), nullable=False)
+    storage_path = Column(Text, nullable=False)
+    mime = Column(Text, nullable=True)
+    sha256 = Column(String(64), unique=True, nullable=False, index=True)
+    pages = Column(Integer, nullable=True)
+    ocr_status = Column(Enum(OCRStatusEnum), default=OCRStatusEnum.not_needed, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    
+    # Relationships
+    funding_opportunity = relationship("FundingOpportunity", backref="documents")
+
+class Source(Base):
+    __tablename__ = "sources"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    provider = Column(Text, nullable=False, index=True)
+    type = Column(Enum(SourceTypeEnum), nullable=False)
+    domain = Column(Text, nullable=True, index=True)
+    config = Column(JSONB, nullable=True, default=dict, server_default='{}')
+    enabled = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+class IngestionRun(Base):
+    __tablename__ = "ingestion_runs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    source_id = Column(Integer, ForeignKey("sources.id", ondelete="CASCADE"), nullable=False, index=True)
+    started_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    items_seen = Column(Integer, default=0, nullable=False)
+    items_ingested = Column(Integer, default=0, nullable=False)
+    errors = Column(JSONB, default=dict, server_default='{}', nullable=False)
+    
+    # Relationships
+    source = relationship("Source", backref="ingestion_runs") 

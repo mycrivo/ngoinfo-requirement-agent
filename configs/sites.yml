@@ -1,0 +1,240 @@
+# ReqAgent Site Profile Registry
+# Domain-specific configurations for web crawling and parsing
+
+# Default fallback configuration
+default:
+  selectors:
+    title: ["h1", ".title", "[class*='title']", "title"]
+    content: ["main", ".content", "[class*='content']", "article", ".post"]
+    deadline: ["[class*='deadline']", "[class*='close']", "[class*='due']", "[class*='date']"]
+    amount: ["[class*='amount']", "[class*='budget']", "[class*='funding']", "[class*='grant']"]
+    eligibility: ["[class*='eligibility']", "[class*='criteria']", "[class*='requirements']"]
+    themes: ["[class*='themes']", "[class*='focus']", "[class*='priorities']", "[class*='sectors']"]
+  
+  pagination:
+    enabled: false
+    next_button: null
+    max_pages: 1
+  
+  waits:
+    page_load: 5000      # milliseconds
+    element_wait: 2000   # milliseconds
+    javascript: 3000     # milliseconds
+  
+  retry:
+    max_attempts: 3
+    backoff_multiplier: 2.0
+    initial_delay: 1000  # milliseconds
+  
+  rate_limit:
+    requests_per_second: 1.0
+    delay_between_requests: 1000  # milliseconds
+  
+  user_agents:
+    - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+# Government funding sites
+gov.uk:
+  selectors:
+    title: ["h1", ".gem-c-title__text", ".govuk-heading-xl"]
+    content: ["main", ".govuk-main-wrapper", ".gem-c-govspeak"]
+    deadline: ["[class*='deadline']", ".govuk-inset-text", "[data-module*='deadline']"]
+    amount: ["[class*='amount']", ".govuk-summary-list", "[data-module*='funding']"]
+    eligibility: ["[class*='eligibility']", ".govuk-list", "[data-module*='criteria']"]
+    themes: ["[class*='themes']", ".govuk-tag", "[data-module*='sectors']"]
+  
+  pagination:
+    enabled: false
+    max_pages: 1
+  
+  waits:
+    page_load: 8000
+    element_wait: 3000
+    javascript: 5000
+  
+  retry:
+    max_attempts: 3
+    backoff_multiplier: 2.0
+    initial_delay: 2000
+  
+  rate_limit:
+    requests_per_second: 0.5
+    delay_between_requests: 2000
+
+# Foundation sites
+foundationcenter.org:
+  selectors:
+    title: ["h1", ".grant-title", ".opportunity-title"]
+    content: ["main", ".grant-content", ".opportunity-details"]
+    deadline: ["[class*='deadline']", ".deadline-info", ".application-deadline"]
+    amount: ["[class*='amount']", ".funding-amount", ".grant-size"]
+    eligibility: ["[class*='eligibility']", ".eligibility-criteria", ".who-can-apply"]
+    themes: ["[class*='themes']", ".focus-areas", ".program-areas"]
+  
+  pagination:
+    enabled: true
+    next_button: ".pagination-next, .next-page"
+    max_pages: 5
+  
+  waits:
+    page_load: 6000
+    element_wait: 2500
+    javascript: 4000
+  
+  retry:
+    max_attempts: 3
+    backoff_multiplier: 1.5
+    initial_delay: 1500
+  
+  rate_limit:
+    requests_per_second: 0.8
+    delay_between_requests: 1250
+
+# University funding sites
+research.gov:
+  selectors:
+    title: ["h1", ".opportunity-title", ".funding-title"]
+    content: ["main", ".opportunity-content", ".funding-details"]
+    deadline: ["[class*='deadline']", ".submission-deadline", ".due-date"]
+    amount: ["[class*='amount']", ".funding-amount", ".award-size"]
+    eligibility: ["[class*='eligibility']", ".eligibility-info", ".applicant-criteria"]
+    themes: ["[class*='themes']", ".research-areas", ".program-focus"]
+  
+  pagination:
+    enabled: false
+    max_pages: 1
+  
+  waits:
+    page_load: 7000
+    element_wait: 3000
+    javascript: 4000
+  
+  retry:
+    max_attempts: 3
+    backoff_multiplier: 2.0
+    initial_delay: 2000
+  
+  rate_limit:
+    requests_per_second: 0.7
+    delay_between_requests: 1400
+
+# International development sites
+devtracker.dfid.gov.uk:
+  selectors:
+    title: ["h1", ".project-title", ".funding-title"]
+    content: ["main", ".project-content", ".funding-details"]
+    deadline: ["[class*='deadline']", ".application-deadline", ".submission-date"]
+    amount: ["[class*='amount']", ".funding-amount", ".project-budget"]
+    eligibility: ["[class*='eligibility']", ".eligibility-criteria", ".applicant-requirements"]
+    themes: ["[class*='themes']", ".sector-focus", ".development-areas"]
+  
+  pagination:
+    enabled: true
+    next_button: ".pagination .next, .next-page"
+    max_pages: 10
+  
+  waits:
+    page_load: 8000
+    element_wait: 3000
+    javascript: 5000
+  
+  retry:
+    max_attempts: 3
+    backoff_multiplier: 2.0
+    initial_delay: 2500
+  
+  rate_limit:
+    requests_per_second: 0.6
+    delay_between_requests: 1600
+
+# NGO funding sites
+ngofunding.org:
+  selectors:
+    title: ["h1", ".grant-title", ".funding-title"]
+    content: ["main", ".grant-content", ".funding-details"]
+    deadline: ["[class*='deadline']", ".application-deadline", ".due-date"]
+    amount: ["[class*='amount']", ".funding-amount", ".grant-size"]
+    eligibility: ["[class*='eligibility']", ".eligibility-criteria", ".who-can-apply"]
+    themes: ["[class*='themes']", ".focus-areas", ".program-areas"]
+  
+  pagination:
+    enabled: true
+    next_button: ".pagination .next, .next-page"
+    max_pages: 8
+  
+  waits:
+    page_load: 6000
+    element_wait: 2500
+    javascript: 3500
+  
+  retry:
+    max_attempts: 3
+    backoff_multiplier: 1.8
+    initial_delay: 1200
+  
+  rate_limit:
+    requests_per_second: 0.9
+    delay_between_requests: 1100
+
+# Corporate foundation sites
+corporate.foundation.org:
+  selectors:
+    title: ["h1", ".grant-title", ".funding-title"]
+    content: ["main", ".grant-content", ".funding-details"]
+    deadline: ["[class*='deadline']", ".application-deadline", ".submission-date"]
+    amount: ["[class*='amount']", ".funding-amount", ".grant-size"]
+    eligibility: ["[class*='eligibility']", ".eligibility-criteria", ".applicant-requirements"]
+    themes: ["[class*='themes']", ".focus-areas", ".program-areas"]
+  
+  pagination:
+    enabled: false
+    max_pages: 1
+  
+  waits:
+    page_load: 7000
+    element_wait: 3000
+    javascript: 4000
+  
+  retry:
+    max_attempts: 3
+    backoff_multiplier: 2.0
+    initial_delay: 2000
+  
+  rate_limit:
+    requests_per_second: 0.7
+    delay_between_requests: 1400
+
+# Regional funding sites
+regional.funding.org:
+  selectors:
+    title: ["h1", ".grant-title", ".funding-title"]
+    content: ["main", ".grant-content", ".funding-details"]
+    deadline: ["[class*='deadline']", ".application-deadline", ".due-date"]
+    amount: ["[class*='amount']", ".funding-amount", ".grant-size"]
+    eligibility: ["[class*='eligibility']", ".eligibility-criteria", ".who-can-apply"]
+    themes: ["[class*='themes']", ".focus-areas", ".program-areas"]
+  
+  pagination:
+    enabled: true
+    next_button: ".pagination .next, .next-page"
+    max_pages: 6
+  
+  waits:
+    page_load: 6000
+    element_wait: 2500
+    javascript: 3500
+  
+  retry:
+    max_attempts: 3
+    backoff_multiplier: 1.6
+    initial_delay: 1500
+  
+  rate_limit:
+    requests_per_second: 0.8
+    delay_between_requests: 1250
+
+
+
+
