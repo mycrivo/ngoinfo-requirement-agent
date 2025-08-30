@@ -7,11 +7,11 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Debug: Print all environment variables that start with PG or DATABASE
+# Debug: Print all environment variables that start with PG or DATABASE (SAFE)
 print("=== DATABASE ENVIRONMENT VARIABLES ===")
 for key, value in os.environ.items():
     if key.startswith(('PG', 'DATABASE')):
-        if 'PASSWORD' in key:
+        if 'PASSWORD' in key or 'DATABASE_URL' in key:
             print(f"{key}: ***")
         else:
             print(f"{key}: {value}")
@@ -29,7 +29,7 @@ if not DATABASE_URL:
     DB_PASSWORD = os.getenv("PGPASSWORD", "password")
     
     DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-    print(f"Built DATABASE_URL from individual components")
+    print("Built DATABASE_URL from individual components")
 
 # Handle Railway's postgres:// vs postgresql:// URL format
 if DATABASE_URL.startswith("postgres://"):

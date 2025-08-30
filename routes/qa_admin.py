@@ -98,8 +98,7 @@ async def logout(request: Request):
     return response
 
 @router.get("/migrations", response_class=HTMLResponse)
-@require_login
-async def migration_dashboard(request: Request):
+async def migration_dashboard(request: Request, _: bool = Depends(require_login)):
     """
     Migration management dashboard - shows current status and allows retry
     """
@@ -120,8 +119,7 @@ async def migration_dashboard(request: Request):
         raise HTTPException(status_code=500, detail="Failed to load migration status")
 
 @router.post("/migrations/retry")
-@require_login
-async def retry_migrations(request: Request):
+async def retry_migrations(request: Request, _: bool = Depends(require_login)):
     """
     Retry failed migrations
     """
