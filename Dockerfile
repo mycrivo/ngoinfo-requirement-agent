@@ -67,8 +67,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 🔐 Phase 3: Split Playwright Install Approach
-# Install Playwright system dependencies as root (without browsers)
-RUN playwright install-deps chromium
+# System dependencies already installed manually above
 
 # Create non-root user with proper home directory
 RUN groupadd --gid 1000 appuser \
