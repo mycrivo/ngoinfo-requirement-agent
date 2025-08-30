@@ -1,0 +1,191 @@
+{% extends "admin_dashboard.html" %}
+
+{% block title %}Admin Analytics - ReqAgent{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', path='css/analytics.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="analytics-container">
+    <!-- Header -->
+    <div class="analytics-header">
+        <h1 class="analytics-title">📊 Analytics Dashboard</h1>
+        <div class="date-range-controls">
+            <label for="start-date">Start Date:</label>
+            <input type="date" id="start-date" class="date-input" value="{{ default_dates.start }}">
+            <label for="end-date">End Date:</label>
+            <input type="date" id="end-date" class="date-input" value="{{ default_dates.end }}">
+        </div>
+    </div>
+
+    <!-- Error Message -->
+    <div id="error-message" class="error-message"></div>
+
+    <!-- Tab Navigation -->
+    <div class="analytics-tabs">
+        <button class="tab-button active" data-tab="pipeline">Pipeline Analytics</button>
+        <button class="tab-button" data-tab="security">Security Analytics</button>
+    </div>
+
+    <!-- Pipeline Tab Content -->
+    <div id="pipeline-content" class="tab-content active">
+        <!-- Pipeline KPIs -->
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-label">Total Ingested</div>
+                <div class="kpi-value" id="total-ingested">-</div>
+                <div class="kpi-change positive">+12% from last period</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">QA Approved</div>
+                <div class="kpi-value" id="total-approved">-</div>
+                <div class="kpi-change positive">+8% from last period</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Published</div>
+                <div class="kpi-value" id="total-published">-</div>
+                <div class="kpi-change positive">+15% from last period</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Templates Generated</div>
+                <div class="kpi-value" id="total-templates">-</div>
+                <div class="kpi-change positive">+22% from last period</div>
+            </div>
+        </div>
+
+        <!-- Pipeline Trends Chart -->
+        <div class="chart-container">
+            <div class="chart-header">
+                <h3 class="chart-title">Pipeline Trends</h3>
+                <div class="chart-actions">
+                    <button class="btn btn-primary btn-sm" data-export="trends">Export CSV</button>
+                </div>
+            </div>
+            <canvas id="pipeline-trends" class="chart-canvas"></canvas>
+        </div>
+
+        <!-- Source Breakdown -->
+        <div class="chart-container">
+            <div class="chart-header">
+                <h3 class="chart-title">Source Breakdown</h3>
+                <div class="chart-actions">
+                    <button class="btn btn-primary btn-sm" data-export="sources">Export CSV</button>
+                </div>
+            </div>
+            <canvas id="source-breakdown" class="chart-canvas"></canvas>
+        </div>
+
+        <!-- QA Metrics -->
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-label">QA Approval Rate</div>
+                <div class="kpi-value" id="qa-approval-rate">-</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Avg Review Time</div>
+                <div class="kpi-value" id="qa-avg-review-time">-</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Total Reviews</div>
+                <div class="kpi-value" id="qa-total-reviews">-</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Security Tab Content -->
+    <div id="security-content" class="tab-content">
+        <!-- Security KPIs -->
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-label">Login Success</div>
+                <div class="kpi-value" id="security-login-success">-</div>
+                <div class="kpi-change positive">Normal activity</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Login Failures</div>
+                <div class="kpi-value" id="security-login-failure">-</div>
+                <div class="kpi-change negative">Monitor closely</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Rate Limit Hits</div>
+                <div class="kpi-value" id="security-rate-limit">-</div>
+                <div class="kpi-change negative">Potential abuse</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Forbidden Access</div>
+                <div class="kpi-value" id="security-forbidden">-</div>
+                <div class="kpi-change negative">Security alert</div>
+            </div>
+        </div>
+
+        <!-- Security Trends Chart -->
+        <div class="chart-container">
+            <div class="chart-header">
+                <h3 class="chart-title">Security Event Trends</h3>
+                <div class="chart-actions">
+                    <button class="btn btn-primary btn-sm" data-export="trends">Export CSV</button>
+                </div>
+            </div>
+            <canvas id="security-trends" class="chart-canvas"></canvas>
+        </div>
+
+        <!-- IP Breakdown Table -->
+        <div class="table-container">
+            <div class="table-header">
+                <h3 class="table-title">Top IP Addresses by Security Events</h3>
+                <div class="chart-actions">
+                    <button class="btn btn-primary btn-sm" data-export="breakdown">Export CSV</button>
+                </div>
+            </div>
+            <table class="analytics-table" id="ip-breakdown-table">
+                <thead>
+                    <tr>
+                        <th>IP Address (Hashed)</th>
+                        <th>Event Count</th>
+                        <th>Event Types</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td colspan="3" class="loading">Loading...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- User Breakdown Table -->
+        <div class="table-container">
+            <div class="table-header">
+                <h3 class="table-title">Top Users by Security Events</h3>
+                <div class="chart-actions">
+                    <button class="btn btn-primary btn-sm" data-export="breakdown">Export CSV</button>
+                </div>
+            </div>
+            <table class="analytics-table" id="user-breakdown-table">
+                <thead>
+                    <tr>
+                        <th>User Email</th>
+                        <th>Event Count</th>
+                        <th>Event Types</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td colspan="3" class="loading">Loading...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Loading Indicator -->
+    <div class="loading" id="global-loading">Loading analytics data...</div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', path='js/chart.min.js') }}"></script>
+<script src="{{ url_for('static', path='js/analytics.js') }}"></script>
+{% endblock %}
+

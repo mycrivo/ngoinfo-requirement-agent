@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Migration Management - ReqAgent Admin</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+            font-weight: 300;
+        }
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+        .content {
+            padding: 30px;
+        }
+        .status-card {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .status-card h3 {
+            margin: 0 0 15px 0;
+            color: #495057;
+            font-size: 1.3em;
+        }
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .status-item {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 20px;
+            text-align: center;
+        }
+        .status-item.success {
+            border-color: #28a745;
+            background: #f8fff9;
+        }
+        .status-item.warning {
+            border-color: #ffc107;
+            background: #fffdf8;
+        }
+        .status-item.danger {
+            border-color: #dc3545;
+            background: #fff8f8;
+        }
+        .status-icon {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        .status-icon.success { color: #28a745; }
+        .status-icon.warning { color: #ffc107; }
+        .status-icon.danger { color: #dc3545; }
+        .status-label {
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #495057;
+        }
+        .status-value {
+            font-size: 1.1em;
+            color: #6c757d;
+        }
+        .actions {
+            text-align: center;
+            margin-top: 30px;
+        }
+        .btn {
+            display: inline-block;
+            padding: 12px 30px;
+            font-size: 1.1em;
+            font-weight: 600;
+            text-decoration: none;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin: 0 10px;
+        }
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #0056b3;
+            transform: translateY(-1px);
+        }
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        .btn-success:hover {
+            background: #1e7e34;
+            transform: translateY(-1px);
+        }
+        .btn-warning {
+            background: #ffc107;
+            color: #212529;
+        }
+        .btn-warning:hover {
+            background: #e0a800;
+            transform: translateY(-1px);
+        }
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        .btn-danger:hover {
+            background: #c82333;
+            transform: translateY(-1px);
+        }
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .alert {
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            border: 1px solid transparent;
+        }
+        .alert-success {
+            color: #155724;
+            background-color: #d4edda;
+            border-color: #c3e6cb;
+        }
+        .alert-danger {
+            color: #721c24;
+            background-color: #f8d7da;
+            border-color: #f5c6cb;
+        }
+        .alert-info {
+            color: #0c5460;
+            background-color: #d1ecf1;
+            border-color: #bee5eb;
+        }
+        .nav-links {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .nav-links a {
+            color: #6c757d;
+            text-decoration: none;
+            margin: 0 15px;
+            padding: 8px 16px;
+            border-radius: 4px;
+            transition: background-color 0.2s ease;
+        }
+        .nav-links a:hover {
+            background-color: #e9ecef;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #007bff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔧 Migration Management</h1>
+            <p>Monitor and manage database schema migrations</p>
+        </div>
+        
+        <div class="content">
+            {% if status.error %}
+            <div class="alert alert-danger">
+                <strong>Error:</strong> {{ status.error }}
+            </div>
+            {% else %}
+            
+            <div class="status-grid">
+                <div class="status-item {% if status.is_up_to_date %}success{% else %}warning{% endif %}">
+                    <div class="status-icon {% if status.is_up_to_date %}success{% else %}warning{% endif %}">
+                        {% if status.is_up_to_date %}✅{% else %}⚠️{% endif %}
+                    </div>
+                    <div class="status-label">Migration Status</div>
+                    <div class="status-value">
+                        {% if status.is_up_to_date %}Up to Date{% else %}Out of Sync{% endif %}
+                    </div>
+                </div>
+                
+                <div class="status-item">
+                    <div class="status-icon">📊</div>
+                    <div class="status-label">Current Revision</div>
+                    <div class="status-value">{{ status.current_revision or 'Unknown' }}</div>
+                </div>
+                
+                <div class="status-item">
+                    <div class="status-icon">🎯</div>
+                    <div class="status-label">Target Revision</div>
+                    <div class="status-value">{{ status.head_revision or 'Unknown' }}</div>
+                </div>
+            </div>
+            
+            {% if not status.is_up_to_date %}
+            <div class="status-card">
+                <h3>Migration Required</h3>
+                <p>Your database schema is out of sync with the application. This may cause functionality issues.</p>
+                <div class="actions">
+                    <button class="btn btn-success" onclick="retryMigrations()">
+                        🔄 Retry Migrations
+                    </button>
+                </div>
+            </div>
+            {% else %}
+            <div class="status-card">
+                <h3>✅ All Systems Operational</h3>
+                <p>Your database schema is up to date. All features should work correctly.</p>
+            </div>
+            {% endif %}
+            
+            {% endif %}
+            
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>Running migrations...</p>
+            </div>
+            
+            <div class="nav-links">
+                <a href="/admin/dashboard">📊 Dashboard</a>
+                <a href="/admin/qa-review">🔍 QA Review</a>
+                <a href="/admin/proposal-template">📄 Templates</a>
+                <a href="/admin/logout">🔓 Logout</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function retryMigrations() {
+            const loading = document.getElementById('loading');
+            const retryBtn = document.querySelector('.btn-success');
+            
+            // Show loading state
+            loading.style.display = 'block';
+            retryBtn.disabled = true;
+            retryBtn.textContent = '🔄 Running...';
+            
+            try {
+                const response = await fetch('/admin/migrations/retry', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        csrf_token: '{{ csrf_token }}'
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Show success message and reload
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 2000);
+                } else {
+                    alert('Migration failed: ' + result.message);
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            } finally {
+                // Hide loading state
+                loading.style.display = 'none';
+                retryBtn.disabled = false;
+                retryBtn.textContent = '🔄 Retry Migrations';
+            }
+        }
+    </script>
+</body>
+</html>
+

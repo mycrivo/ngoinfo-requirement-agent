@@ -202,4 +202,9 @@ class ProposalTemplateResponse(BaseModel):
     filename: Optional[str] = None
     download_url: Optional[str] = None
     timestamp: Optional[str] = None
-    opportunity_title: Optional[str] = None 
+    opportunity_title: Optional[str] = None
+    template_id: Optional[int] = None
+    pdf_url: Optional[str] = None
+    status: Optional[str] = None
+    hash: Optional[str] = None
+    is_existing: Optional[bool] = False 

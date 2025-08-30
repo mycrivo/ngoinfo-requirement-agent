@@ -2,14 +2,15 @@ from fastapi import APIRouter, HTTPException, status
 import requests
 import os
 import logging
-from typing import Dict, Any, List, Optional
-import base64
-from requests.auth import HTTPBasicAuth
+import hashlib
 import json
 import traceback
 from datetime import datetime
+from typing import Dict, Any, List, Optional
+import time
 
 from schemas import PublishToWordPressRequest, PublishToWordPressResponse
+from services.content_sanitizer import content_sanitizer
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -17,8 +18,12 @@ logger = logging.getLogger(__name__)
 # Create router
 router = APIRouter(prefix="/api", tags=["wordpress-publish"])
 
+class PublishError(Exception):
+    """Custom exception for publishing failures"""
+    pass
+
 class WordPressPublisher:
-    """WordPress REST API client for publishing posts"""
+    """Enhanced WordPress REST API client with idempotency and retry logic"""
     
     def __init__(self):
         self.base_url = os.getenv('WP_API_URL')
@@ -32,429 +37,272 @@ class WordPressPublisher:
             logger.error(f"   WP_APPLICATION_PASSWORD: {'✅ Set' if self.app_password else '❌ Missing'}")
             raise ValueError("WordPress credentials not properly configured. Please set WP_API_URL, WP_USERNAME, and WP_APPLICATION_PASSWORD environment variables.")
         
-        # Log the original URL before processing
-        original_url = self.base_url
-        logger.info(f"🔧 WP_API_URL CONFIGURATION:")
-        logger.info(f"   ORIGINAL: {original_url}")
-        
-        # Remove trailing slash from base URL
+        # Clean up base URL
         self.base_url = self.base_url.rstrip('/') if self.base_url else ''
-        logger.info(f"   AFTER_CLEANUP: {self.base_url}")
+        logger.info(f"✅ WordPress publisher initialized for: {self.base_url}")
         
-        # Check URL format and provide guidance
-        if self.base_url.endswith('/wp-json/wp/v2'):
-            logger.info(f"✅ DETECTED: Full API URL format (includes /wp-json/wp/v2)")
-        elif 'wp-json' in self.base_url:
-            logger.warning(f"⚠️ DETECTED: Partial API URL (contains wp-json but not full path)")
-        else:
-            logger.info(f"📍 DETECTED: Base domain only (will append /wp-json/wp/v2)")
+        # Authentication
+        self.auth = requests.auth.HTTPBasicAuth(self.username, self.app_password)
         
-        # Setup authentication (cast to satisfy type checker - we know they're not None)
-        self.auth = HTTPBasicAuth(str(self.username), str(self.app_password))
-        
-        # Default headers
+        # Headers
         self.headers = {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'User-Agent': 'ReqAgent/1.0 WordPress Publisher'
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "ReqAgent/2.0.0"
         }
         
-        logger.info(f"📡 WordPress Publisher initialized - Final API URL: {self.base_url}")
-        logger.info(f"🎯 Expected POST URL for posts: {self.base_url}/wp-json/wp/v2/posts" if not self.base_url.endswith('/wp-json/wp/v2') else f"{self.base_url}/posts")
+        # Retry configuration
+        self.max_retries = 3
+        self.retry_delay = 2.0  # seconds
     
-    def validate_content(self, content: str) -> Dict[str, Any]:
-        """Validate content before sending to WordPress"""
-        validation_result = {
-            'valid': True,
-            'warnings': [],
-            'errors': []
-        }
-        
-        # Check content length
-        content_length = len(content)
-        if content_length > 1000000:  # 1MB limit
-            validation_result['errors'].append(f"Content too large: {content_length} characters (max: 1,000,000)")
-            validation_result['valid'] = False
-        elif content_length > 500000:  # 500KB warning
-            validation_result['warnings'].append(f"Large content: {content_length} characters")
-        
-        # Check for problematic characters
-        problematic_chars = ['\x00', '\x01', '\x02', '\x03', '\x04', '\x05', '\x06', '\x07', '\x08', '\x0b', '\x0c', '\x0e', '\x0f']
-        for char in problematic_chars:
-            if char in content:
-                validation_result['errors'].append(f"Contains invalid control character: {repr(char)}")
-                validation_result['valid'] = False
-        
-        # Log validation results
-        if validation_result['warnings']:
-            logger.warning(f"⚠️ Content validation warnings: {'; '.join(validation_result['warnings'])}")
-        if validation_result['errors']:
-            logger.error(f"🔴 Content validation errors: {'; '.join(validation_result['errors'])}")
-        
-        return validation_result
-    
-    def _make_request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
-        """Make authenticated request to WordPress REST API with comprehensive logging"""
-        
-        # 🔧 FIXED: Smart URL construction to handle different WP_API_URL formats
-        if not self.base_url:
-            raise ValueError("WordPress base URL is not configured")
-            
-        if self.base_url.endswith('/wp-json/wp/v2'):
-            # Base URL already includes the REST API path
-            url = f"{self.base_url}/{endpoint}"
-        elif '/wp-json/wp/v2' in self.base_url:
-            # Base URL includes wp-json/wp/v2 but not at the end
-            # Check if the endpoint is already at the end of the URL to avoid duplication
-            if self.base_url.endswith(f'/{endpoint}'):
-                # Endpoint already present at the end, use as-is
-                url = self.base_url
-                logger.info(f"✅ WP_API_URL already ends with endpoint '{endpoint}', using as-is")
-            else:
-                # Endpoint not at the end, append it
-                url = f"{self.base_url}/{endpoint}"
-                logger.info(f"🔧 WP_API_URL contains wp-json/wp/v2 but not at end, appending endpoint '{endpoint}'")
-        else:
-            # Base URL is just the domain, append full REST API path
-            url = f"{self.base_url}/wp-json/wp/v2/{endpoint}"
-        
-        request_id = datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:20]
-        
-        # 🔍 ENHANCED DEBUGGING: Log URL construction and full request details
-        logger.info(f"🔧 URL CONSTRUCTION:")
-        logger.info(f"   BASE_URL = {self.base_url}")
-        logger.info(f"   ENDPOINT = {endpoint}")
-        logger.info(f"   ENDS_WITH_API_PATH = {self.base_url.endswith('/wp-json/wp/v2')}")
-        logger.info(f"   CONTAINS_API_PATH = {'/wp-json/wp/v2' in self.base_url}")
-        logger.info(f"   FINAL_URL = {url}")
-        
-        # Expected URL validation
-        expected_pattern = "https://ngoinfo.org/wp-json/wp/v2/"
-        if expected_pattern in url:
-            logger.info(f"✅ URL FORMAT CORRECT: Contains expected pattern {expected_pattern}")
-        else:
-            logger.warning(f"⚠️ URL FORMAT ISSUE: Does not contain expected pattern {expected_pattern}")
-        
-        logger.info(f"🔍 WP PUBLISH: URL = {url}")
-        logger.info(f"🔍 WP PUBLISH: METHOD = {method}")
-        logger.info(f"🔍 WP PUBLISH: HEADERS = {json.dumps(dict(self.headers), indent=2)}")
-        logger.info(f"🔍 WP PUBLISH: BASE_URL = {self.base_url}")
-        logger.info(f"🔍 WP PUBLISH: ENDPOINT = {endpoint}")
-        
-        # Log authentication details (without exposing credentials)
-        logger.info(f"🔍 WP PUBLISH: AUTH_USERNAME = {self.username}")
-        logger.info(f"🔍 WP PUBLISH: AUTH_TYPE = HTTPBasicAuth")
-        logger.info(f"🔍 WP PUBLISH: HAS_PASSWORD = {'Yes' if self.app_password else 'No'}")
-        
-        # Log request payload if present
-        if 'json' in kwargs:
-            payload = kwargs['json']
-            logger.info(f"🔍 WP PUBLISH: PAYLOAD = {json.dumps(payload, indent=2, default=str)}")
-            logger.info(f"🔍 WP PUBLISH: PAYLOAD_SIZE = {len(json.dumps(payload)) if payload else 0} characters")
-        
-        if 'params' in kwargs:
-            logger.info(f"🔍 WP PUBLISH: QUERY_PARAMS = {json.dumps(kwargs['params'], indent=2)}")
-        
-        # Log additional request details
-        logger.info(f"🔍 WP PUBLISH: TIMEOUT = 30 seconds")
-        logger.info(f"🔍 WP PUBLISH: REQUEST_ID = {request_id}")
-        
+    def _generate_idempotency_key(self, title: str, donor: str, deadline: str) -> str:
+        """Generate idempotency key from content"""
         try:
-            logger.info(f"🚀 [{request_id}] Making WordPress API request...")
-            
-            # 🛰️ FINAL REQUEST LOGGING - Exactly what will be sent to WordPress
-            logger.info(f"🛰️ WP Final POST URL: {url}")
-            
-            # Prepare final headers with auth
-            final_headers = self.headers.copy()
-            # Note: requests.request() handles auth separately, so we don't add it to headers
-            # But we'll log what headers are being sent
-            logger.info(f"📦 Headers: {json.dumps(final_headers, indent=2)}")
-            
-            # Log authentication info separately
-            logger.info(f"🔐 Authentication: HTTPBasicAuth with username={self.username}")
-            
-            # Log payload if present
-            if 'json' in kwargs:
-                payload = kwargs['json']
-                logger.info(f"📤 Payload Preview: {json.dumps(payload, indent=2)[:1000]}")  # truncate to avoid overlogging
-            
-            # Verify required headers are present
-            required_headers = {
-                "Content-Type": "application/json",
-                "Accept": "application/json"
+            # Create a hash from key identifying fields
+            key_data = f"{title}:{donor}:{deadline}".lower().strip()
+            return hashlib.sha256(key_data.encode('utf-8')).hexdigest()[:16]
+        except Exception as e:
+            logger.error(f"❌ Error generating idempotency key: {e}")
+            # Fallback to timestamp-based key
+            return f"reqagent_{int(time.time())}"
+    
+    def _check_existing_post(self, idempotency_key: str) -> Optional[Dict[str, Any]]:
+        """Check if a post with the same idempotency key already exists"""
+        try:
+            # Search for posts with the idempotency key in meta
+            search_url = f"{self.base_url}/wp-json/wp/v2/posts"
+            params = {
+                'search': idempotency_key,
+                'per_page': 10
             }
             
-            for header_name, expected_value in required_headers.items():
-                if header_name in final_headers:
-                    if final_headers[header_name] == expected_value:
-                        logger.info(f"✅ Header verified: {header_name} = {expected_value}")
-                    else:
-                        logger.warning(f"⚠️ Header mismatch: {header_name} = {final_headers[header_name]} (expected: {expected_value})")
-                else:
-                    logger.error(f"❌ Missing required header: {header_name}")
-            
-            # Confirm method and URL are not mutated
-            logger.info(f"🎯 Final METHOD: {method}")
-            logger.info(f"🎯 Final URL (pre-request): {url}")
-            
-            # Make the actual request
-            response = requests.request(
-                method=method,
-                url=url,
+            response = requests.get(
+                search_url,
                 auth=self.auth,
                 headers=self.headers,
-                timeout=30,  # Add 30 second timeout
-                **kwargs
+                params=params,
+                timeout=30
             )
             
-            # Log response details
-            logger.info(f"📥 [{request_id}] WordPress API Response:")
-            logger.info(f"   Status: {response.status_code} {response.reason}")
-            logger.info(f"   Response headers: {dict(response.headers)}")
+            if response.status_code == 200:
+                posts = response.json()
+                
+                # Check if any post has our idempotency key
+                for post in posts:
+                    # Check meta fields for idempotency key
+                    meta_url = f"{self.base_url}/wp-json/wp/v2/posts/{post['id']}"
+                    meta_response = requests.get(
+                        meta_url,
+                        auth=self.auth,
+                        headers=self.headers,
+                        timeout=30
+                    )
+                    
+                    if meta_response.status_code == 200:
+                        post_data = meta_response.json()
+                        meta = post_data.get('meta', {})
+                        
+                        if meta.get('reqagent_idempotency_key') == idempotency_key:
+                            logger.info(f"🔄 Found existing post with idempotency key: {post['id']}")
+                            return post_data
             
-            # Log response body
+            return None
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Error checking for existing post: {e}")
+            return None
+    
+    def _make_request_with_retry(self, method: str, endpoint: str, **kwargs) -> requests.Response:
+        """Make WordPress API request with retry logic and exponential backoff"""
+        request_id = f"wp_{int(time.time() * 1000)}"
+        
+        for attempt in range(self.max_retries + 1):
             try:
-                response_json = response.json()
-                logger.info(f"   Response body: {json.dumps(response_json, indent=2, default=str)}")
-            except (ValueError, json.JSONDecodeError):
-                response_text = response.text[:1000]
-                logger.info(f"   Response body (text): {response_text}")
+                logger.info(f"🚀 [{request_id}] WordPress API request attempt {attempt + 1}/{self.max_retries + 1}")
+                
+                url = f"{self.base_url}/wp-json/wp/v2/{endpoint}"
+                
+                # Make the request
+                response = requests.request(
+                    method=method,
+                    url=url,
+                    auth=self.auth,
+                    headers=self.headers,
+                    timeout=30,
+                    **kwargs
+                )
+                
+                # Log response details (excluding sensitive content)
+                logger.info(f"📥 [{request_id}] WordPress API Response:")
+                logger.info(f"   Status: {response.status_code} {response.reason}")
+                logger.info(f"   URL: {url}")
+                logger.info(f"   Method: {method}")
+                
+                # Log response headers (excluding sensitive ones)
+                safe_headers = {k: v for k, v in response.headers.items() 
+                              if k.lower() not in ['authorization', 'cookie', 'set-cookie']}
+                logger.info(f"   Response headers: {safe_headers}")
+                
+                # Check for HTTP errors
+                if response.status_code >= 400:
+                    self._handle_http_error(response, request_id)
+                
+                # Success - return response
+                logger.info(f"✅ [{request_id}] WordPress API request successful")
+                return response
+                
+            except requests.exceptions.RequestException as e:
+                logger.error(f"❌ [{request_id}] WordPress API request failed (attempt {attempt + 1}): {e}")
+                
+                if attempt < self.max_retries:
+                    # Calculate delay with exponential backoff
+                    delay = self.retry_delay * (2 ** attempt)
+                    logger.info(f"🔄 [{request_id}] Retrying in {delay} seconds...")
+                    time.sleep(delay)
+                else:
+                    # Final attempt failed
+                    logger.error(f"❌ [{request_id}] All retry attempts failed")
+                    raise PublishError(f"WordPress API request failed after {self.max_retries + 1} attempts: {str(e)}")
             
-            # Check for HTTP errors - this will raise HTTPError for non-2xx responses
-            response.raise_for_status()
-            
-            return response
-            
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"❌ WP POST failed: {e}")
-            logger.error(f"📨 WP Response Status: {response.status_code}")
-            logger.error(f"📨 WP Response Headers: {dict(response.headers)}")
-            logger.error(f"📨 WP Response Content: {response.text}")
-            logger.error(f"📨 WP Request URL: {url}")
-            logger.error(f"📨 WP Request Method: {method}")
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=f"WordPress API HTTP error: {response.status_code} - {response.text}"
-            )
-        except requests.exceptions.ConnectionError as e:
-            logger.error(f"❌ WP POST failed: {e}")
-            logger.error(f"📨 WP Connection Error Details:")
-            logger.error(f"   URL: {url}")
-            logger.error(f"   Method: {method}")
-            logger.error(f"   Check if WordPress site is accessible and API URL is correct")
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Cannot connect to WordPress API. Please check if the site is accessible and the API URL is correct. (Error: {str(e)})"
-            )
-        except requests.exceptions.Timeout as e:
-            logger.error(f"❌ WP POST failed: {e}")
-            logger.error(f"📨 WP Timeout Error Details:")
-            logger.error(f"   URL: {url}")
-            logger.error(f"   Method: {method}")
-            logger.error(f"   Timeout: 30 seconds")
-            raise HTTPException(
-                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-                detail="WordPress API request timed out. The site may be slow or experiencing issues."
-            )
-        except requests.exceptions.RequestException as e:
-            logger.error(f"❌ WP POST failed: {e}")
-            logger.error(f"📨 WP Request Exception Details:")
-            logger.error(f"   URL: {url}")
-            logger.error(f"   Method: {method}")
-            logger.error(f"   Exception Type: {type(e).__name__}")
-            if hasattr(e, 'response') and e.response is not None:
-                logger.error(f"📨 WP Response Content: {e.response.text}")
-                logger.error(f"📨 WP Response Status: {e.response.status_code}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"WordPress API request failed: {str(e)}"
-            )
+            except Exception as e:
+                logger.error(f"❌ [{request_id}] Unexpected error: {e}")
+                raise PublishError(f"Unexpected error during WordPress API request: {str(e)}")
     
     def _handle_http_error(self, response: requests.Response, request_id: str):
-        """Handle specific HTTP error codes from WordPress API"""
-        status_code = response.status_code
-        
+        """Handle HTTP errors from WordPress API"""
         try:
-            error_data = response.json()
-            error_code = error_data.get('code', 'unknown_error')
-            error_message = error_data.get('message', 'Unknown error')
-            error_details = error_data.get('data', {})
-        except (ValueError, json.JSONDecodeError):
-            error_code = 'parse_error'
-            error_message = 'Could not parse error response'
-            error_details = {'raw_response': response.text[:500]}
-        
-        logger.error(f"🔴 [{request_id}] WordPress API Error {status_code}:")
-        logger.error(f"   Error code: {error_code}")
-        logger.error(f"   Error message: {error_message}")
-        logger.error(f"   Error details: {json.dumps(error_details, indent=2, default=str)}")
-        
-        # Handle specific error cases
-        if status_code == 401:
-            logger.error("🔐 Authentication failed - check WordPress credentials")
-            logger.error("   - Verify WP_USERNAME and WP_APPLICATION_PASSWORD are correct")
-            logger.error("   - Check if Application Password is enabled in WordPress")
-            logger.error("   - Ensure user has proper permissions")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"WordPress authentication failed. Please check credentials. (WordPress error: {error_message})"
-            )
-        elif status_code == 403:
-            logger.error("🚫 Permission denied - user lacks required permissions")
-            logger.error("   - Check if user can create/edit posts")
-            logger.error("   - Verify user role and capabilities")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Permission denied. User lacks required WordPress permissions. (WordPress error: {error_message})"
-            )
-        elif status_code == 404:
-            logger.error("🔍 WordPress API endpoint not found")
-            logger.error("   - Check if WordPress REST API is enabled")
-            logger.error("   - Verify API URL is correct")
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"WordPress API endpoint not found. Check if REST API is enabled. (WordPress error: {error_message})"
-            )
-        elif status_code == 500:
-            logger.error("💥 WordPress server error")
-            logger.error("   - Check WordPress site health")
-            logger.error("   - Review WordPress error logs")
-            logger.error("   - Check for plugin conflicts")
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"WordPress server error. Check site health and error logs. (WordPress error: {error_message})"
-            )
-        else:
-            logger.error(f"❓ Unexpected WordPress API error: {status_code}")
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"WordPress API error {status_code}: {error_message}"
-            )
-    
-    def get_default_category_id(self) -> Optional[int]:
-        """Get the default 'NGO Grants and Funds' category ID, return None if not found"""
-        default_category_slug = "ngo-grants-and-funds"
-        default_category_name = "NGO Grants and Funds"
-        
-        try:
-            logger.info(f"🏷️ Looking for default category: {default_category_name} (slug: {default_category_slug})")
-            logger.info(f"🔍 CATEGORY LOOKUP: Will make GET request to categories endpoint")
+            error_detail = "Unknown error"
             
-            # Search for category by slug (more reliable than name)
-            response = self._make_request('GET', 'categories', params={'slug': default_category_slug})
-            categories = response.json()
+            # Try to extract error details from response
+            try:
+                error_data = response.json()
+                if isinstance(error_data, dict):
+                    error_detail = error_data.get('message', error_data.get('error', 'Unknown error'))
+            except:
+                error_detail = response.text[:500] if response.text else 'No error details'
             
-            if categories and len(categories) > 0:
-                category_id = categories[0]['id']
-                logger.info(f"✅ Found default category: {default_category_name} (ID: {category_id})")
-                return category_id
+            # Log error details (excluding sensitive information)
+            logger.error(f"❌ [{request_id}] WordPress API HTTP error:")
+            logger.error(f"   Status: {response.status_code}")
+            logger.error(f"   URL: {response.url}")
+            logger.error(f"   Error: {error_detail}")
             
-            # Category not found by slug, try by name as fallback
-            logger.info(f"🔍 Category not found by slug, trying name search...")
-            response = self._make_request('GET', 'categories', params={'search': default_category_name})
-            categories = response.json()
-            
-            # Check for exact name match
-            for category in categories:
-                if category['name'].lower() == default_category_name.lower():
-                    category_id = category['id']
-                    logger.info(f"✅ Found default category by name: {default_category_name} (ID: {category_id})")
-                    return category_id
-            
-            # Category not found at all
-            logger.warning(f"⚠️ Default category '{default_category_name}' not found. Publishing without category.")
-            return None
-            
-        except HTTPException:
-            # Don't fail the entire post creation if category lookup fails
-            logger.warning(f"⚠️ Failed to lookup default category due to API error. Publishing without category.")
-            return None
+            # Raise appropriate HTTP exception
+            if response.status_code == 401:
+                raise PublishError("WordPress authentication failed. Please check your credentials.")
+            elif response.status_code == 403:
+                raise PublishError("WordPress access denied. Please check your permissions.")
+            elif response.status_code == 404:
+                raise PublishError("WordPress endpoint not found. Please check your API URL.")
+            elif response.status_code == 429:
+                raise PublishError("WordPress rate limit exceeded. Please try again later.")
+            elif response.status_code >= 500:
+                raise PublishError(f"WordPress server error ({response.status_code}). Please try again later.")
+            else:
+                raise PublishError(f"WordPress API error ({response.status_code}): {error_detail}")
+                
+        except PublishError:
+            raise
         except Exception as e:
-            logger.warning(f"⚠️ Failed to lookup default category '{default_category_name}': {e}")
-            logger.warning("   Publishing without category to avoid blocking post creation.")
-            return None
+            logger.error(f"❌ [{request_id}] Error handling HTTP error: {e}")
+            raise PublishError(f"WordPress API error ({response.status_code}): {response.text[:200]}")
     
-
+    def _create_seo_meta(self, post_data: PublishToWordPressRequest) -> Dict[str, Any]:
+        """Create SEO meta fields for Rank Math or similar plugins"""
+        try:
+            # Generate focus keyword from title and themes
+            focus_keywords = []
+            if post_data.title:
+                # Extract key terms from title
+                title_words = post_data.title.lower().split()
+                focus_keywords.extend([word for word in title_words if len(word) > 3])
+            
+            if post_data.themes:
+                focus_keywords.extend(post_data.themes[:3])
+            
+            # Create meta description
+            meta_description = ""
+            if post_data.summary:
+                meta_description = post_data.summary[:160] + "..." if len(post_data.summary) > 160 else post_data.summary
+            elif post_data.title:
+                meta_description = f"Funding opportunity: {post_data.title}"
+            
+            # Create meta title
+            meta_title = post_data.title
+            if post_data.donor and post_data.donor != "Unknown":
+                meta_title = f"{post_data.title} - {post_data.donor}"
+            
+            seo_meta = {
+                "rank_math_title": meta_title,
+                "rank_math_description": meta_description,
+                "rank_math_focus_keyword": ", ".join(focus_keywords[:3]),
+                "rank_math_robots": "index,follow",
+                "rank_math_advanced_robots": "noindex,nofollow"
+            }
+            
+            logger.info(f"✅ SEO meta fields created: {len(seo_meta)} fields")
+            return seo_meta
+            
+        except Exception as e:
+            logger.error(f"❌ Error creating SEO meta: {e}")
+            return {}
     
     def create_post(self, post_data: PublishToWordPressRequest) -> Dict[str, Any]:
-        """Create a WordPress post as draft with SEO metadata"""
-        post_creation_id = datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:20]
+        """Create a WordPress post with idempotency and enhanced features"""
+        post_creation_id = f"post_{int(time.time() * 1000)}"
         
         try:
-            logger.info(f"📝 [{post_creation_id}] Creating WordPress post: {post_data.title}")
+            logger.info(f"🚀 [{post_creation_id}] Creating WordPress post: {post_data.title}")
             
-            # Validate post content
-            validation_result = self.validate_content(post_data.content)
-            if not validation_result['valid']:
-                logger.error(f"🔴 [{post_creation_id}] Content validation failed:")
-                for error in validation_result['errors']:
-                    logger.error(f"   - {error}")
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Content validation failed: {'; '.join(validation_result['errors'])}"
-                )
+            # Generate idempotency key
+            idempotency_key = self._generate_idempotency_key(
+                post_data.title, 
+                post_data.donor, 
+                post_data.deadline
+            )
             
-            # Validate required fields
-            if not post_data.title or not post_data.title.strip():
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Post title is required and cannot be empty"
-                )
+            # Check for existing post
+            existing_post = self._check_existing_post(idempotency_key)
+            if existing_post:
+                logger.info(f"🔄 [{post_creation_id}] Post already exists, returning existing data")
+                return existing_post
             
-            if not post_data.content or not post_data.content.strip():
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Post content is required and cannot be empty"
-                )
+            # Sanitize content for WordPress
+            sanitized_title = content_sanitizer.sanitize_string(post_data.title, max_length=100)
+            sanitized_content = content_sanitizer.sanitize_html(post_data.content, allow_html=True)
             
-            # Get default category ID (NGO Grants and Funds)
-            logger.info(f"🏷️ [{post_creation_id}] Setting up default category")
-            default_category_id = self.get_default_category_id()
-            category_ids = [default_category_id] if default_category_id else []
-            
-            # Note: Tags are not processed - posts use default category only
-            tag_ids = []
-            
-            # Prepare post payload (always draft status, default category only)
+            # Create WordPress post data
             wp_post_data = {
-                'title': post_data.title.strip(),
-                'content': post_data.content,
-                'status': 'draft',  # Always draft, never publish
-                'meta': {
-                    # Custom field for opportunity URL
-                    'opportunity_url': post_data.opportunity_url,
-                    
-                    # Rank Math SEO fields
-                    'rank_math_title': post_data.meta_title,
-                    'rank_math_description': post_data.meta_description,
-                    'rank_math_focus_keyword': '',  # Can be enhanced later
-                    'rank_math_robots': ['index', 'follow'],
-                    
-                    # Additional SEO meta fields that Rank Math might use
-                    '_yoast_wpseo_title': post_data.meta_title,  # Fallback for Yoast compatibility
-                    '_yoast_wpseo_metadesc': post_data.meta_description,
+                "title": sanitized_title,
+                "content": sanitized_content,
+                "status": "draft",  # Always create as draft for safety
+                "excerpt": post_data.summary[:200] + "..." if len(post_data.summary) > 200 else post_data.summary,
+                "categories": [1],  # Default category
+                "tags": post_data.tags[:10] if post_data.tags else [],
+                "meta": {
+                    "reqagent_idempotency_key": idempotency_key,
+                    "reqagent_source": "ReqAgent",
+                    "reqagent_published_at": datetime.utcnow().isoformat(),
+                    "funding_amount": post_data.amount,
+                    "funding_deadline": post_data.deadline,
+                    "funding_location": ", ".join(post_data.location) if post_data.location else "Unknown"
                 }
             }
             
-            # Only include categories if we have a valid default category
-            if category_ids:
-                wp_post_data['categories'] = category_ids
-                logger.info(f"📂 [{post_creation_id}] Using default category (ID: {category_ids[0]})")
-            else:
-                logger.info(f"📂 [{post_creation_id}] Publishing without category (default category not available)")
+            # Add SEO meta fields
+            seo_meta = self._create_seo_meta(post_data)
+            wp_post_data["meta"].update(seo_meta)
             
-            logger.info(f"📊 [{post_creation_id}] Post data summary:")
-            logger.info(f"   Title: {post_data.title}")
-            logger.info(f"   Content length: {len(post_data.content)} characters")
-            logger.info(f"   Status: draft (always)")
-            logger.info(f"   Default category: {'Applied' if category_ids else 'Not available'}")
-            logger.info(f"   Meta title: {post_data.meta_title}")
-            logger.info(f"   Meta description length: {len(post_data.meta_description) if post_data.meta_description else 0}")
+            # Log post creation details
+            logger.info(f"📝 [{post_creation_id}] Post data prepared:")
+            logger.info(f"   Title: {sanitized_title[:50]}...")
+            logger.info(f"   Content length: {len(sanitized_content)} characters")
+            logger.info(f"   Status: draft")
+            logger.info(f"   Idempotency key: {idempotency_key}")
+            logger.info(f"   SEO meta: {len(seo_meta)} fields")
             
-            # Create the post
-            logger.info(f"🚀 [{post_creation_id}] Sending post creation request to WordPress...")
-            response = self._make_request('POST', 'posts', json=wp_post_data)
+            # Create the post with retry logic
+            response = self._make_request_with_retry('POST', 'posts', json=wp_post_data)
             post_response = response.json()
             
             post_id = post_response.get('id')
@@ -464,35 +312,21 @@ class WordPressPublisher:
             logger.info(f"   Post ID: {post_id}")
             logger.info(f"   Post URL: {post_url}")
             logger.info(f"   Status: {post_response.get('status')}")
+            logger.info(f"   Idempotency key: {idempotency_key}")
             
             return post_response
             
-        except HTTPException:
-            # Re-raise HTTP exceptions as they already have proper error details
+        except PublishError:
             raise
         except Exception as e:
             logger.error(f"🔴 [{post_creation_id}] Failed to create WordPress post: {e}")
             logger.error(f"   Full exception: {traceback.format_exc()}")
-            logger.error(f"   Post data summary:")
-            logger.error(f"     Title: {getattr(post_data, 'title', 'N/A')}")
-            logger.error(f"     Content length: {len(getattr(post_data, 'content', ''))}")
-            logger.error(f"     Status: draft (always)")
-            logger.error(f"     Default category attempted: {default_category_id is not None}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to create WordPress post: {str(e)}"
-            )
+            raise PublishError(f"Failed to create WordPress post: {str(e)}")
 
 @router.post("/wordpress/publish", response_model=PublishToWordPressResponse)
 async def publish_to_wordpress(post_data: PublishToWordPressRequest) -> PublishToWordPressResponse:
     """
-    Publish a blog post to WordPress as a draft via REST API
-    
-    Args:
-        post_data: Blog post data including title, content, tags, categories, and SEO metadata
-    
-    Returns:
-        PublishToWordPressResponse: WordPress API response with post details
+    Publish a blog post to WordPress as a draft via REST API with idempotency
     """
     try:
         logger.info(f"🚀 Publishing blog post to WordPress: {post_data.title}")
@@ -515,11 +349,14 @@ async def publish_to_wordpress(post_data: PublishToWordPressRequest) -> PublishT
             post_url=post_url
         )
         
-    except HTTPException:
-        # Re-raise HTTP exceptions as they already have proper error details
-        raise
+    except PublishError as e:
+        logger.error(f"❌ WordPress publishing failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
-        logger.error(f"Unexpected error in publish_to_wordpress: {e}")
+        logger.error(f"❌ Unexpected error in publish_to_wordpress: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An unexpected error occurred: {str(e)}"
@@ -529,23 +366,73 @@ async def publish_to_wordpress(post_data: PublishToWordPressRequest) -> PublishT
 async def test_wordpress_connection():
     """Test WordPress API connection and authentication"""
     try:
+        logger.info("🔍 Testing WordPress API connection...")
+        
         wp_publisher = WordPressPublisher()
         
-        # Test connection by fetching site info
-        response = wp_publisher._make_request('GET', '../', timeout=10)
+        # Test basic connectivity
+        response = wp_publisher._make_request_with_retry('GET', 'posts?per_page=1')
+        
+        if response.status_code == 200:
+            logger.info("✅ WordPress API connection successful")
+            return {
+                "success": True,
+                "message": "WordPress API connection successful",
+                "status_code": response.status_code,
+                "base_url": wp_publisher.base_url
+            }
+        else:
+            logger.error(f"❌ WordPress API connection failed: {response.status_code}")
+            return {
+                "success": False,
+                "message": f"WordPress API connection failed: {response.status_code}",
+                "status_code": response.status_code,
+                "base_url": wp_publisher.base_url
+            }
+            
+    except Exception as e:
+        logger.error(f"❌ WordPress API connection test failed: {e}")
+        return {
+            "success": False,
+            "message": f"WordPress API connection test failed: {str(e)}",
+            "error": str(e)
+        }
+
+@router.get("/wordpress/status")
+async def get_wordpress_status():
+    """Get WordPress site status and configuration"""
+    try:
+        logger.info("🔍 Getting WordPress site status...")
+        
+        wp_publisher = WordPressPublisher()
+        
+        # Get site info
+        response = wp_publisher._make_request_with_retry('GET', '')
         site_info = response.json()
         
-        return {
+        # Get posts count
+        posts_response = wp_publisher._make_request_with_retry('GET', 'posts?per_page=1')
+        posts_count = int(posts_response.headers.get('X-WP-Total', 0))
+        
+        status_info = {
             "success": True,
-            "message": "WordPress connection successful",
             "site_name": site_info.get('name', 'Unknown'),
-            "site_url": site_info.get('url', 'Unknown'),
-            "api_url": wp_publisher.base_url
+            "site_description": site_info.get('description', ''),
+            "site_url": site_info.get('url', ''),
+            "api_url": wp_publisher.base_url,
+            "total_posts": posts_count,
+            "api_version": site_info.get('version', 'Unknown'),
+            "features": site_info.get('features', []),
+            "authentication": "configured" if wp_publisher.username and wp_publisher.app_password else "missing"
         }
         
+        logger.info(f"✅ WordPress status retrieved: {status_info['site_name']}")
+        return status_info
+        
     except Exception as e:
-        logger.error(f"WordPress connection test failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"WordPress connection failed: {str(e)}"
-        ) 
+        logger.error(f"❌ Failed to get WordPress status: {e}")
+        return {
+            "success": False,
+            "message": f"Failed to get WordPress status: {str(e)}",
+            "error": str(e)
+        } 

@@ -720,6 +720,31 @@ async def parse_funding_opportunity_from_url(url: str) -> dict:
             elif len(validated_data["location"]) > 1:
                 validated_data["location"] = ", ".join(validated_data["location"])
         
+        # Add multi-tier parsing for variants
+        try:
+            from .multi_tier_parser import parse_multi_tier_opportunity
+            logger.info(f"🔍 Running multi-tier analysis for {url}")
+            
+            # Parse variants from the HTML content
+            variants = parse_multi_tier_opportunity(sectioned_content, url)
+            
+            if variants:
+                # Add variants to the parsed data
+                validated_data["variants"] = [variant.dict() for variant in variants]
+                logger.info(f"✅ Extracted {len(variants)} variants for {url}")
+                
+                # Apply primary variant mapping to maintain backward compatibility
+                from .variant_utils import apply_primary_to_top_level
+                validated_data = apply_primary_to_top_level(validated_data)
+                logger.info(f"✅ Applied primary variant mapping for {url}")
+            else:
+                validated_data["variants"] = []
+                logger.info(f"ℹ️ No variants detected for {url}")
+                
+        except Exception as e:
+            logger.warning(f"⚠️ Multi-tier parsing failed for {url}: {str(e)}")
+            validated_data["variants"] = []
+        
         logger.info(f"✅ Successfully parsed {url} with confidence: {validated_data.get('_confidence_score', 'N/A')}%")
         return validated_data
         
