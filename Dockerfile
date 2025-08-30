@@ -32,7 +32,8 @@ RUN apt-get update && apt-get install -y \
     libasound2 \
     libatspi2.0-0 \
     libgtk-3-0 \
-    libgconf-2-4 \
+    libnotify-dev \
+    libgbm-dev \
     # X11 and rendering libraries
     libx11-6 \
     libx11-xcb1 \
@@ -43,6 +44,8 @@ RUN apt-get update && apt-get install -y \
     libxi6 \
     libxrender1 \
     libxtst6 \
+    xauth \
+    xvfb \
     # Fonts for proper text rendering
     fonts-liberation \
     fonts-noto-color-emoji \
