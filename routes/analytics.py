@@ -15,7 +15,7 @@ from services.metrics import (
     get_pipeline_kpis, get_pipeline_trends, get_source_breakdown, get_qa_metrics,
     get_security_kpis, get_security_trends, get_security_breakdown
 )
-from utils.auth import get_current_user, require_admin_role
+from utils.auth_enhanced import get_current_user, require_admin_role
 from services.structured_logger import structured_logger
 from services.feature_flags import check_analytics_enabled
 

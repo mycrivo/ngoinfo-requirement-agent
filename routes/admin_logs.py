@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timedelta
 
 from services.structured_logger import structured_logger
-from utils.auth import get_current_user, require_admin_role
+from utils.auth_enhanced import get_current_user, require_admin_role
 
 router = APIRouter(prefix="/admin", tags=["admin-logs"])
 templates = Jinja2Templates(directory="templates")
