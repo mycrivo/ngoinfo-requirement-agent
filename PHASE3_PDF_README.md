@@ -420,3 +420,5 @@ python -c "from db import engine; print(engine.execute('SELECT 1').scalar())"
 The system provides robust, secure, and scalable PDF ingestion capabilities while maintaining compatibility with existing ReqAgent infrastructure. Users can now process funding opportunity documents through multiple channels with automatic text extraction, intelligent parsing, and seamless integration into the QA review workflow.
 
 
+
+

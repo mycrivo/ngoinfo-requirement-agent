@@ -256,3 +256,5 @@ def _search_logs(query: str, level: Optional[str], action: Optional[str], hours:
     return sample_results[:limit]
 
 
+
+
