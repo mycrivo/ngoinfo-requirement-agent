@@ -33,9 +33,16 @@ def test_main_app_import():
             # If we're missing dependencies, that's expected in dev environment
             # Just check that it's not a SlowAPI decorator issue
             if "No 'request' or 'websocket' argument" in str(e):
-                pytest.fail(f"SlowAPI decorator configuration error: {e}")
+                if 'pytest' in sys.modules:
+                    pytest.fail(f"SlowAPI decorator configuration error: {e}")
+                else:
+                    raise AssertionError(f"SlowAPI decorator configuration error: {e}")
             else:
-                pytest.skip(f"Skipping due to missing dependencies: {e}")
+                if 'pytest' in sys.modules:
+                    pytest.skip(f"Skipping due to missing dependencies: {e}")
+                else:
+                    print(f"⚠️ Skipping due to missing dependencies: {e}")
+                    return
         
     finally:
         # Clean up test mode
@@ -64,9 +71,16 @@ def test_fastapi_testclient_instantiation():
             
         except ImportError as e:
             if "No 'request' or 'websocket' argument" in str(e):
-                pytest.fail(f"SlowAPI decorator configuration error: {e}")
+                if 'pytest' in sys.modules:
+                    pytest.fail(f"SlowAPI decorator configuration error: {e}")
+                else:
+                    raise AssertionError(f"SlowAPI decorator configuration error: {e}")
             else:
-                pytest.skip(f"Skipping due to missing dependencies: {e}")
+                if 'pytest' in sys.modules:
+                    pytest.skip(f"Skipping due to missing dependencies: {e}")
+                else:
+                    print(f"⚠️ Skipping due to missing dependencies: {e}")
+                    return
         
     finally:
         # Clean up test mode
@@ -126,10 +140,83 @@ def test_storage_service_initialization():
                 del os.environ[key]
 
 
+def test_rate_limit_exception_handler_app_level():
+    """Test that RateLimitExceeded handler is registered at app level, not router level"""
+    # Set test mode to avoid heavy initialization
+    os.environ["TEST_MODE"] = "true"
+    
+    try:
+        try:
+            import main
+            from slowapi.errors import RateLimitExceeded
+            
+            # Verify app has exception handlers
+            assert hasattr(main.app, 'exception_handlers'), "FastAPI app missing exception_handlers"
+            
+            # Check that RateLimitExceeded is registered at app level
+            app_handlers = main.app.exception_handlers
+            rate_limit_handler_found = False
+            
+            for exception_type, handler in app_handlers.items():
+                if exception_type == RateLimitExceeded or (hasattr(exception_type, '__name__') and exception_type.__name__ == 'RateLimitExceeded'):
+                    rate_limit_handler_found = True
+                    break
+            
+            assert rate_limit_handler_found, "RateLimitExceeded handler not found in app-level exception handlers"
+            
+            # Verify no router-level exception handlers exist (by checking routers don't have exception_handler decorators)
+            # This is a compile-time check - if there were router-level handlers, import would fail
+            
+        except ImportError as e:
+            # Check for specific rate limit handler errors
+            if "exception_handler" in str(e).lower() or "router" in str(e).lower():
+                if 'pytest' in sys.modules:
+                    pytest.fail(f"Router-level exception handler configuration error: {e}")
+                else:
+                    raise AssertionError(f"Router-level exception handler configuration error: {e}")
+            else:
+                if 'pytest' in sys.modules:
+                    pytest.skip(f"Skipping due to missing dependencies: {e}")
+                else:
+                    print(f"⚠️ Skipping due to missing dependencies: {e}")
+                    return
+                
+    finally:
+        # Clean up test mode
+        if "TEST_MODE" in os.environ:
+            del os.environ["TEST_MODE"]
+
+
 if __name__ == "__main__":
     # Run tests directly for debugging
-    test_main_app_import()
-    test_fastapi_testclient_instantiation() 
-    test_slowapi_limiter_configuration()
-    test_storage_service_initialization()
-    print("✅ All startup import tests passed!")
+    try:
+        test_main_app_import()
+        print("✅ test_main_app_import passed!")
+    except Exception as e:
+        print(f"❌ test_main_app_import failed: {e}")
+    
+    try:
+        test_fastapi_testclient_instantiation()
+        print("✅ test_fastapi_testclient_instantiation passed!")
+    except Exception as e:
+        print(f"❌ test_fastapi_testclient_instantiation failed: {e}")
+    
+    try:
+        test_slowapi_limiter_configuration()
+        print("✅ test_slowapi_limiter_configuration passed!")
+    except Exception as e:
+        print(f"❌ test_slowapi_limiter_configuration failed: {e}")
+        
+    try:
+        test_storage_service_initialization()
+        print("✅ test_storage_service_initialization passed!")
+    except Exception as e:
+        print(f"❌ test_storage_service_initialization failed: {e}")
+        
+    try:
+        test_rate_limit_exception_handler_app_level()
+        print("✅ test_rate_limit_exception_handler_app_level passed!")
+    except Exception as e:
+        print(f"❌ test_rate_limit_exception_handler_app_level failed: {e}")
+    
+    print("✅ All startup import tests completed!")

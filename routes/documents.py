@@ -22,7 +22,6 @@ from services.pdf_to_gold import pdf_to_gold_parser, ParsedOpportunity, PDFParse
 # Rate limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -564,13 +563,7 @@ async def get_document_text(
             detail=f"Failed to get document text: {str(e)}"
         )
 
-# Add rate limit exceeded handler
-@router.exception_handler(RateLimitExceeded)
-async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
-    return HTTPException(
-        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-        detail="Rate limit exceeded. Please try again later."
-    )
+# Rate limit exceeded handler is registered at app level in main.py
 
 
 
