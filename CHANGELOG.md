@@ -1,5 +1,7 @@
 # Changelog
 
+2025-08-31T11:33:21Z  bump: 0.8.0 -> 0.8.1 (deployment trigger)
+
 ## [0.8.0] - ReqAgent Phases 1–8 Release
 
 ### Added
