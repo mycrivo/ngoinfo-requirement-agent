@@ -346,9 +346,9 @@ document_service = DocumentService()
 async def ingest_pdf_url(
     url: str = Form(...),
     funding_opportunity_id: Optional[int] = Form(None),
+    request: Request,
     db: Session = Depends(get_db),
-    current_user: str = Depends(require_admin_auth),
-    req: Request = None
+    current_user: str = Depends(require_admin_auth)
 ):
     """
     Ingest PDF from URL with text extraction and parsing
@@ -387,9 +387,9 @@ async def ingest_pdf_url(
 async def upload_pdf(
     file: UploadFile = File(...),
     funding_opportunity_id: Optional[int] = Form(None),
+    request: Request,
     db: Session = Depends(get_db),
-    current_user: str = Depends(require_admin_auth),
-    req: Request = None
+    current_user: str = Depends(require_admin_auth)
 ):
     """
     Upload and ingest PDF file with text extraction and parsing
@@ -571,6 +571,7 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
         detail="Rate limit exceeded. Please try again later."
     )
+
 
 
 

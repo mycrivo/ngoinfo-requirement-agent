@@ -195,9 +195,9 @@ template_service = TemplateService()
 async def generate_template(
     request: CreateProposalTemplateRequest,
     background_tasks: BackgroundTasks,
+    req: Request,
     db: Session = Depends(get_db),
-    current_user: str = Depends(require_admin_auth),
-    req: Request = None
+    current_user: str = Depends(require_admin_auth)
 ):
     """
     Generate a proposal template with deduplication
@@ -378,9 +378,9 @@ async def download_template(
 async def regenerate_template(
     template_id: int,
     background_tasks: BackgroundTasks,
+    request: Request,
     db: Session = Depends(get_db),
-    current_user: str = Depends(require_admin_auth),
-    req: Request = None
+    current_user: str = Depends(require_admin_auth)
 ):
     """
     Force regenerate template (admin only)

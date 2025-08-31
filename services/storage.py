@@ -63,20 +63,35 @@ class StorageService:
             self._init_local_backend()
     
     def _init_local_backend(self):
-        """Initialize local filesystem backend"""
-        self.base_path = Path(os.getenv("FILE_STORAGE_ROOT", "/mnt/data/generated"))
+        """Initialize local filesystem backend
+        
+        Railway deployment note: Uses /tmp by default since Railway's ephemeral filesystem
+        doesn't provide persistent writable directories outside /tmp. For persistent storage,
+        configure S3-compatible backend via environment variables.
+        """
+        # Resolution order: REQAGENT_STORAGE_DIR -> FILE_STORAGE_ROOT -> /tmp/reqagent_storage
+        storage_dir = (
+            os.getenv("REQAGENT_STORAGE_DIR") or 
+            os.getenv("FILE_STORAGE_ROOT") or 
+            "/tmp/reqagent_storage"
+        )
+        self.base_path = Path(storage_dir)
         
         # Ensure directory exists
         try:
             self.base_path.mkdir(parents=True, exist_ok=True)
             logger.info(f"📁 Local storage directory ready: {self.base_path}")
         except Exception as e:
-            logger.error(f"❌ Failed to create local storage directory: {e}")
-            # Fallback to system temp directory
-            import tempfile
-            self.base_path = Path(tempfile.gettempdir()) / "reqagent_storage"
-            self.base_path.mkdir(parents=True, exist_ok=True)
-            logger.warning(f"⚠️ Using fallback temp directory: {self.base_path}")
+            logger.warning(f"⚠️ Failed to create primary storage directory {self.base_path}: {e}")
+            # Fallback to /tmp/reqagent_storage
+            fallback_path = Path("/tmp/reqagent_storage")
+            try:
+                fallback_path.mkdir(parents=True, exist_ok=True)
+                self.base_path = fallback_path
+                logger.warning(f"⚠️ Using fallback storage directory: {self.base_path}")
+            except Exception as fallback_error:
+                logger.error(f"❌ Both primary and fallback storage failed. Primary: {e}, Fallback: {fallback_error}")
+                raise StorageError(f"Unable to initialize storage directory. Primary: {e}, Fallback: {fallback_error}")
     
     def _validate_path(self, path: str) -> str:
         """Validate and sanitize file path to prevent path traversal attacks"""
