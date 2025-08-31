@@ -160,7 +160,7 @@ async def search_logs(
                               user=current_user.get("username", "unknown"),
                               query=query,
                               level=level,
-                              action=action,
+                              search_action=action,
                               hours=hours,
                               results_count=len(search_results))
         

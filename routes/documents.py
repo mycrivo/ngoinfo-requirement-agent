@@ -343,9 +343,9 @@ document_service = DocumentService()
 @router.post("/ingest-url")
 @limiter.limit("5/minute")  # Rate limit: 5 URL ingestions per minute
 async def ingest_pdf_url(
+    request: Request,
     url: str = Form(...),
     funding_opportunity_id: Optional[int] = Form(None),
-    request: Request,
     db: Session = Depends(get_db),
     current_user: str = Depends(require_admin_auth)
 ):
@@ -384,9 +384,9 @@ async def ingest_pdf_url(
 @router.post("/upload")
 @limiter.limit("3/minute")  # Rate limit: 3 file uploads per minute
 async def upload_pdf(
+    request: Request,
     file: UploadFile = File(...),
     funding_opportunity_id: Optional[int] = Form(None),
-    request: Request,
     db: Session = Depends(get_db),
     current_user: str = Depends(require_admin_auth)
 ):
